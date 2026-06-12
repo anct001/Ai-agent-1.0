@@ -4,6 +4,7 @@
     python -m jarvis analyze NVDA        VC-style deep-dive on one ticker
     python -m jarvis briefing            daily macro + portfolio briefing
     python -m jarvis auto [--interval N] autonomous management loop
+    python -m jarvis dashboard           web dashboard at localhost:8000
     python -m jarvis portfolio           print holdings (no LLM call)
 """
 
@@ -43,10 +44,23 @@ def _build_agent(auto_approve: bool):
             market_data.last_price,
         )
     else:
-        broker = PaperBroker(portfolio, market_data.last_price)
+        broker = PaperBroker(
+            portfolio,
+            market_data.last_price,
+            slippage_bps=settings.fill_slippage_bps,
+            commission=settings.commission_per_order,
+        )
 
     approve_fn = None if auto_approve else _interactive_approval
-    return InvestmentAgent(settings, portfolio, broker, risk, journal, approve_fn)
+    return InvestmentAgent(
+        settings,
+        portfolio,
+        broker,
+        risk,
+        journal,
+        approve_fn,
+        history_path=settings.data_dir / "chat_history.json",
+    )
 
 
 def _interactive_approval(order: dict) -> bool:
@@ -118,6 +132,7 @@ def cmd_auto(args) -> None:
         # disk, so context stays small and state stays on disk where it belongs.
         agent = _build_agent(auto_approve=True)
         try:
+            _run_alert_check(agent.portfolio)
             agent.run_turn(AUTO_CYCLE_PROMPT, _stream_print)
         except Exception as exc:
             print(f"\n[cycle failed: {exc}]", file=sys.stderr)
@@ -129,6 +144,67 @@ def cmd_auto(args) -> None:
         except KeyboardInterrupt:
             print("\nStopped.")
             break
+
+
+def _run_alert_check(portfolio: Portfolio) -> None:
+    """Evaluate alert rules and notify configured channels; never fatal."""
+    try:
+        from .alerts import AlertManager
+        from .history import EquityHistory
+        from .tools import market_data
+
+        snap = portfolio.snapshot(market_data.last_price)
+        history = EquityHistory(settings.data_dir / "equity_history.json")
+        try:
+            benchmark = market_data.last_price("^GSPC")
+        except Exception:
+            benchmark = None
+        history.record(snap["equity"], benchmark)
+        fired = AlertManager(settings).process(snap, history.read())
+        for alert in fired:
+            print(f"[ALERT/{alert['severity']}] {alert['title']} — {alert['detail']}")
+    except Exception as exc:
+        print(f"[alert check failed: {exc}]", file=sys.stderr)
+
+
+def cmd_dashboard(args) -> None:
+    try:
+        import uvicorn
+    except ImportError:
+        sys.exit("The dashboard needs fastapi and uvicorn: pip install -r requirements.txt")
+    print(f"JARVIS dashboard → http://{args.host}:{args.port}")
+    uvicorn.run("jarvis.server:app", host=args.host, port=args.port, log_level="warning")
+
+
+def cmd_backtest(args) -> None:
+    from .backtest import run_backtest
+
+    weights = {}
+    for part in args.weights.split(","):
+        symbol, _, weight = part.strip().partition("=")
+        weights[symbol.upper()] = float(weight)
+    result = run_backtest(
+        weights,
+        period=args.period,
+        rebalance=args.rebalance,
+        benchmark_symbol=args.benchmark,
+    )
+    print(f"\nBacktest {result['start']} → {result['end']} "
+          f"(rebalance: {result['rebalance']}, costs: {result['cost_bps']} bps)\n")
+    rows = [("", "Portfolio", result.get("benchmark_symbol", "Benchmark"))]
+    bench = result.get("benchmark", {})
+    for key, label in [
+        ("total_return_pct", "Total return %"),
+        ("cagr_pct", "CAGR %"),
+        ("annualized_volatility_pct", "Volatility %"),
+        ("sharpe_ratio", "Sharpe"),
+        ("max_drawdown_pct", "Max drawdown %"),
+    ]:
+        rows.append((label, result["portfolio"][key], bench.get(key, "—")))
+    for label, a, b in rows:
+        print(f"{label:<18}{str(a):>12}{str(b):>12}")
+    if "excess_cagr_pct" in result:
+        print(f"\nExcess CAGR vs benchmark: {result['excess_cagr_pct']:+.2f} pp")
 
 
 def cmd_portfolio(args) -> None:
@@ -178,6 +254,20 @@ def main() -> None:
     )
     p_auto.add_argument("--once", action="store_true", help="run a single cycle")
     p_auto.set_defaults(func=cmd_auto)
+
+    p_bt = sub.add_parser("backtest", help="backtest a target-weight allocation")
+    p_bt.add_argument("weights", help='e.g. "NVDA=0.4,MSFT=0.3,GLD=0.2"')
+    p_bt.add_argument("--period", default="5y", choices=["1y", "2y", "5y", "10y", "max"])
+    p_bt.add_argument(
+        "--rebalance", default="monthly", choices=["weekly", "monthly", "quarterly"]
+    )
+    p_bt.add_argument("--benchmark", default="SPY")
+    p_bt.set_defaults(func=cmd_backtest)
+
+    p_dash = sub.add_parser("dashboard", help="launch the web dashboard")
+    p_dash.add_argument("--host", default="127.0.0.1", help="bind address")
+    p_dash.add_argument("--port", type=int, default=8000)
+    p_dash.set_defaults(func=cmd_dashboard)
 
     sub.add_parser("portfolio", help="print holdings").set_defaults(
         func=cmd_portfolio

@@ -14,6 +14,7 @@ class Fill:
     qty: float
     price: float
     value: float
+    fee: float = 0.0
 
 
 class Broker(Protocol):

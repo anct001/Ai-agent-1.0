@@ -7,7 +7,13 @@ yfinance is imported lazily inside functions so the rest of the package
 from __future__ import annotations
 
 import math
+import time
 from functools import lru_cache
+
+# Quotes don't need tick-level freshness here; a short TTL keeps the
+# dashboard and agent loops snappy without hammering Yahoo.
+_PRICE_TTL_SECONDS = 60.0
+_price_cache: dict[str, tuple[float, float]] = {}  # symbol -> (price, fetched_at)
 
 
 def _yf():
@@ -29,15 +35,23 @@ def _ticker(symbol: str):
 
 
 def last_price(symbol: str) -> float:
-    """Latest traded price; raises if the symbol has no data."""
-    t = _ticker(symbol.upper())
+    """Latest traded price (cached ~60s); raises if the symbol has no data."""
+    symbol = symbol.upper()
+    cached = _price_cache.get(symbol)
+    now = time.time()
+    if cached and now - cached[1] < _PRICE_TTL_SECONDS:
+        return cached[0]
+
+    t = _ticker(symbol)
     price = getattr(t.fast_info, "last_price", None)
-    if price and price > 0:
-        return float(price)
-    hist = t.history(period="5d")
-    if hist.empty:
-        raise ValueError(f"No market data for {symbol!r}")
-    return float(hist["Close"].iloc[-1])
+    if not (price and price > 0):
+        hist = t.history(period="5d")
+        if hist.empty:
+            raise ValueError(f"No market data for {symbol!r}")
+        price = float(hist["Close"].iloc[-1])
+    price = float(price)
+    _price_cache[symbol] = (price, now)
+    return price
 
 
 def get_quote(symbols: list[str]) -> list[dict]:
@@ -134,6 +148,43 @@ _FUNDAMENTAL_KEYS = {
     "heldPercentInstitutions": "institutional_ownership",
     "shortPercentOfFloat": "short_pct_of_float",
 }
+
+
+def get_sector(symbol: str) -> str:
+    """Sector for a symbol, cached on disk (yfinance .info is slow)."""
+    import json
+
+    from ..config import settings
+
+    symbol = symbol.upper()
+    cache_path = settings.data_dir / "sectors.json"
+    cache = {}
+    if cache_path.exists():
+        try:
+            cache = json.loads(cache_path.read_text())
+        except json.JSONDecodeError:
+            cache = {}
+    if symbol in cache:
+        return cache[symbol]
+    try:
+        info = _ticker(symbol).info or {}
+        sector = info.get("sector") or (
+            "ETF / Fund" if info.get("quoteType") in ("ETF", "MUTUALFUND") else "Other"
+        )
+    except Exception:
+        return "Unknown"  # don't cache failures
+    cache[symbol] = sector
+    cache_path.write_text(json.dumps(cache, indent=2, sort_keys=True))
+    return sector
+
+
+def sector_allocation(positions: list[dict]) -> dict[str, float]:
+    """Aggregate position values by sector."""
+    out: dict[str, float] = {}
+    for pos in positions:
+        sector = get_sector(pos["symbol"])
+        out[sector] = round(out.get(sector, 0.0) + pos["value"], 2)
+    return out
 
 
 def get_fundamentals(symbol: str) -> dict:

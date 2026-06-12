@@ -49,13 +49,63 @@ cp .env.example .env        # then put your ANTHROPIC_API_KEY in .env
 ### Commands
 
 ```bash
-python -m jarvis chat              # interactive session with the agent
-python -m jarvis analyze NVDA      # VC-style deep-dive on one ticker
-python -m jarvis briefing          # daily macro + portfolio briefing
-python -m jarvis auto --once       # one autonomous management cycle
-python -m jarvis auto              # autonomous loop (daily by default)
-python -m jarvis portfolio         # print holdings (no LLM call)
+python -m jarvis dashboard                  # web dashboard at http://127.0.0.1:8000
+python -m jarvis chat                       # interactive terminal session
+python -m jarvis analyze NVDA               # VC-style deep-dive on one ticker
+python -m jarvis briefing                   # daily macro + portfolio briefing
+python -m jarvis auto --once                # one autonomous management cycle
+python -m jarvis auto                       # autonomous loop (daily by default)
+python -m jarvis backtest "NVDA=0.4,GLD=0.2"  # backtest an allocation vs SPY
+python -m jarvis portfolio                  # print holdings (no LLM call)
 ```
+
+### Docker
+
+```bash
+cp .env.example .env                # set ANTHROPIC_API_KEY (+ a dashboard token)
+docker compose up -d                # dashboard on 127.0.0.1:8000
+docker compose --profile auto up -d # also run the autonomous daily cycle
+```
+
+State persists in the `jarvis-data` volume.
+
+## Web dashboard
+
+`python -m jarvis dashboard` serves a dark-themed single-page app:
+
+- **Overview** — KPI cards (equity, cash, invested, unrealized P&L, daily
+  trade budget), an **equity curve vs the S&P 500** (both indexed to 100),
+  an **allocation donut** plus a **sector-exposure donut**, live **macro
+  regime tiles** (yield curve with an inversion signal, VIX, credit, dollar,
+  oil, gold, bitcoin), recent alerts, positions marked to market, and the
+  active risk limits.
+- **Chat** — talk to the agent in the browser with streamed responses and
+  tool-call indicators, one-click quick actions (daily briefing, portfolio
+  review, "find an asymmetric bet"), and a **persistent conversation** that
+  survives restarts (reset anytime with "New conversation").
+- **Backtest** — enter a target-weight allocation (e.g. `NVDA=0.4, GLD=0.2`,
+  remainder = cash), pick a period and rebalance cadence, and get CAGR,
+  volatility, Sharpe, max drawdown, and excess return vs a benchmark with
+  the simulated curve. The agent has the same tool and is instructed to
+  backtest allocations before proposing them.
+- **Order approvals in the browser** — when the agent wants to trade, a
+  modal shows the order, conviction, and rationale; nothing executes until
+  you click Approve (denials and 5-minute timeouts both cancel the order).
+- **Alerts** — a banner appears when a holding falls past its drawdown
+  threshold, equity draws down from its peak, or equity moves sharply in a
+  day. Each alert also fans out (once per day per rule) to an optional
+  **webhook** (Slack/Discord-style) and **SMTP email**.
+- **Journal** — every recorded thesis (with conviction badge, horizon, and
+  invalidation condition) and lessons learned.
+- **Trades** — the full ledger with per-trade rationales and fees.
+
+The equity curve builds up day over day: each dashboard load snapshots
+total equity alongside the S&P 500 close into `data/equity_history.json`.
+
+> **Auth:** set `JARVIS_DASHBOARD_TOKEN` and every API request must carry
+> `Authorization: Bearer <token>` — the UI prompts for it once and stores it
+> locally. The token is **required** before exposing the dashboard beyond
+> `127.0.0.1`, since the dashboard can approve trades.
 
 Example session:
 
@@ -77,8 +127,13 @@ The regime is cautiously risk-on: the 10Y/3M curve has re-steepened to ...
 | `jarvis/memory.py` | Persistent journal: investment theses (with invalidation conditions) and lessons |
 | `jarvis/portfolio.py` | Local ledger: cash, positions, trade history, mark-to-market (JSON on disk) |
 | `jarvis/risk.py` | Hard order gate: per-order cap, concentration cap, cash floor, daily limit |
-| `jarvis/brokers/` | `PaperBroker` (default, simulated fills at live prices) and optional `AlpacaBroker` |
-| `jarvis/cli.py` | CLI, interactive order approval, autonomous scheduler |
+| `jarvis/brokers/` | `PaperBroker` (default; simulated fills with configurable slippage + commission) and optional `AlpacaBroker` |
+| `jarvis/backtest.py` | Target-weight backtester: rebalancing, trading costs, CAGR/Sharpe/drawdown vs benchmark |
+| `jarvis/alerts.py` | Alert rules (position/portfolio drawdown, daily move) + webhook/email fan-out, deduped daily |
+| `jarvis/history.py` | Daily equity-curve snapshots with S&P 500 benchmark, normalized for charting |
+| `jarvis/server.py` | FastAPI backend: REST + SSE chat streaming + browser order-approval hub + Bearer-token auth |
+| `jarvis/web/` | Dashboard SPA (vanilla JS + Chart.js, no build step) |
+| `jarvis/cli.py` | CLI, interactive order approval, autonomous scheduler, backtest, dashboard launcher |
 
 Design choices worth knowing:
 
@@ -117,6 +172,19 @@ The portfolio and risk layers are dependency-free and tested offline:
 pip install pytest
 pytest
 ```
+
+## Roadmap / known gaps
+
+Previously listed gaps now shipped: backtesting, alerts (webhook + email),
+sector exposure, chat persistence, dashboard auth, realistic paper fills
+(slippage + commission), and Docker deployment. Still on the list:
+
+- **Factor/geography exposure** — sector view exists; no factor or regional
+  breakdown yet.
+- **Event-driven alerts** — alerts evaluate on dashboard polls and auto
+  cycles, not on a real-time price stream.
+- **Multi-user support** — single portfolio, single token, single owner.
+- **Tax/lot accounting** — average-cost basis only; no per-lot tracking.
 
 ## Disclaimer
 
