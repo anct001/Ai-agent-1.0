@@ -1,0 +1,24 @@
+services:
+  # Web dashboard (chat, charts, approvals)
+  dashboard:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    env_file: .env
+    volumes:
+      - jarvis-data:/app/data
+    restart: unless-stopped
+
+  # Autonomous daily management cycle (paper mode unless you explicitly
+  # configure live + AUTO_APPROVE in .env)
+  auto:
+    build: .
+    command: ["python", "-m", "jarvis", "auto", "--interval", "86400"]
+    env_file: .env
+    volumes:
+      - jarvis-data:/app/data
+    restart: unless-stopped
+    profiles: ["auto"]   # opt-in: docker compose --profile auto up
+
+volumes:
+  jarvis-data:

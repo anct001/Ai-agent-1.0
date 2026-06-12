@@ -78,11 +78,15 @@ class Portfolio:
         qty: float,
         price: float,
         rationale: str = "",
+        fee: float = 0.0,
     ) -> dict:
-        """Record an executed fill, updating cash and positions."""
+        """Record an executed fill, updating cash and positions.
+
+        `fee` (commission) is deducted from cash on both sides.
+        """
         symbol = symbol.upper()
         if side == "buy":
-            cost = qty * price
+            cost = qty * price + fee
             if cost > self.cash + 1e-9:
                 raise ValueError(
                     f"Insufficient cash: need ${cost:,.2f}, have ${self.cash:,.2f}"
@@ -90,7 +94,7 @@ class Portfolio:
             pos = self.positions.get(symbol)
             if pos:
                 new_qty = pos.qty + qty
-                pos.avg_cost = (pos.qty * pos.avg_cost + cost) / new_qty
+                pos.avg_cost = (pos.qty * pos.avg_cost + qty * price) / new_qty
                 pos.qty = new_qty
             else:
                 self.positions[symbol] = Position(qty=qty, avg_cost=price)
@@ -103,7 +107,7 @@ class Portfolio:
             pos.qty -= qty
             if pos.qty <= 1e-9:
                 del self.positions[symbol]
-            self.cash += qty * price
+            self.cash += qty * price - fee
         else:
             raise ValueError(f"side must be 'buy' or 'sell', got {side!r}")
 
@@ -114,6 +118,7 @@ class Portfolio:
             "qty": qty,
             "price": price,
             "value": round(qty * price, 2),
+            "fee": round(fee, 2),
             "rationale": rationale,
         }
         self.trades.append(trade)

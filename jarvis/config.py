@@ -66,6 +66,25 @@ class Settings:
         "ALPACA_BASE_URL", "https://paper-api.alpaca.markets"
     )
 
+    # Dashboard auth: when set, every /api request must send
+    # "Authorization: Bearer <token>".
+    dashboard_token: str = os.getenv("JARVIS_DASHBOARD_TOKEN", "")
+
+    # Paper-fill realism
+    fill_slippage_bps: float = _env_float("FILL_SLIPPAGE_BPS", 5.0)
+    commission_per_order: float = _env_float("COMMISSION_PER_ORDER", 0.0)
+
+    # Alerts
+    alert_position_drawdown_pct: float = _env_float("ALERT_POSITION_DRAWDOWN_PCT", 15.0)
+    alert_portfolio_drawdown_pct: float = _env_float("ALERT_PORTFOLIO_DRAWDOWN_PCT", 10.0)
+    alert_daily_move_pct: float = _env_float("ALERT_DAILY_MOVE_PCT", 5.0)
+    alert_webhook_url: str = os.getenv("ALERT_WEBHOOK_URL", "")
+    smtp_host: str = os.getenv("SMTP_HOST", "")
+    smtp_port: int = _env_int("SMTP_PORT", 587)
+    smtp_user: str = os.getenv("SMTP_USER", "")
+    smtp_password: str = os.getenv("SMTP_PASSWORD", "")
+    alert_email_to: str = os.getenv("ALERT_EMAIL_TO", "")
+
     def __post_init__(self) -> None:
         if self.execution_mode not in ("paper", "live"):
             raise ValueError(

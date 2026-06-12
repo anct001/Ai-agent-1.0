@@ -150,6 +150,43 @@ _FUNDAMENTAL_KEYS = {
 }
 
 
+def get_sector(symbol: str) -> str:
+    """Sector for a symbol, cached on disk (yfinance .info is slow)."""
+    import json
+
+    from ..config import settings
+
+    symbol = symbol.upper()
+    cache_path = settings.data_dir / "sectors.json"
+    cache = {}
+    if cache_path.exists():
+        try:
+            cache = json.loads(cache_path.read_text())
+        except json.JSONDecodeError:
+            cache = {}
+    if symbol in cache:
+        return cache[symbol]
+    try:
+        info = _ticker(symbol).info or {}
+        sector = info.get("sector") or (
+            "ETF / Fund" if info.get("quoteType") in ("ETF", "MUTUALFUND") else "Other"
+        )
+    except Exception:
+        return "Unknown"  # don't cache failures
+    cache[symbol] = sector
+    cache_path.write_text(json.dumps(cache, indent=2, sort_keys=True))
+    return sector
+
+
+def sector_allocation(positions: list[dict]) -> dict[str, float]:
+    """Aggregate position values by sector."""
+    out: dict[str, float] = {}
+    for pos in positions:
+        sector = get_sector(pos["symbol"])
+        out[sector] = round(out.get(sector, 0.0) + pos["value"], 2)
+    return out
+
+
 def get_fundamentals(symbol: str) -> dict:
     symbol = symbol.upper()
     try:

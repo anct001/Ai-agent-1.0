@@ -23,9 +23,12 @@
   <nav>
     <button class="tab active" data-tab="overview">Overview</button>
     <button class="tab" data-tab="chat">Chat</button>
+    <button class="tab" data-tab="backtest">Backtest</button>
     <button class="tab" data-tab="journal">Journal</button>
     <button class="tab" data-tab="trades">Trades</button>
   </nav>
+
+  <div id="alerts-banner" class="alerts-banner hidden"></div>
 
   <!-- ===== Overview ===== -->
   <main id="tab-overview" class="tab-panel active">
@@ -40,6 +43,18 @@
       <div class="card">
         <h2>Allocation</h2>
         <div class="chart-box donut"><canvas id="alloc-chart"></canvas></div>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card">
+        <h2>Sector Exposure</h2>
+        <div class="chart-box donut small"><canvas id="sector-chart"></canvas></div>
+        <p id="sector-empty" class="empty hidden">Sectors appear once you hold positions.</p>
+      </div>
+      <div class="card">
+        <h2>Recent Alerts</h2>
+        <div id="alerts-list" class="stack"><span class="empty">No alerts.</span></div>
       </div>
     </section>
 
@@ -70,12 +85,45 @@
         <button class="chip" data-prompt="Give me today's macro and portfolio briefing.">Daily briefing</button>
         <button class="chip" data-prompt="Review every open position against its thesis and tell me if anything should change.">Review portfolio</button>
         <button class="chip" data-prompt="Find one asymmetric, VC-style opportunity in the current market and build the thesis.">Find an asymmetric bet</button>
+        <button class="chip chip-danger" id="chat-reset">↺ New conversation</button>
       </div>
       <form id="chat-form" class="chat-input">
         <input id="chat-text" type="text" placeholder="Message JARVIS…" autocomplete="off" />
         <button type="submit" id="chat-send">Send</button>
       </form>
     </div>
+  </main>
+
+  <!-- ===== Backtest ===== -->
+  <main id="tab-backtest" class="tab-panel">
+    <section class="card">
+      <h2>Backtest an Allocation <span class="hint">(weights as fractions of equity; remainder = cash)</span></h2>
+      <form id="backtest-form" class="bt-form">
+        <input id="bt-weights" type="text" placeholder='NVDA=0.4, MSFT=0.3, GLD=0.2' required />
+        <select id="bt-period">
+          <option value="1y">1 year</option>
+          <option value="2y">2 years</option>
+          <option value="5y" selected>5 years</option>
+          <option value="10y">10 years</option>
+          <option value="max">Max</option>
+        </select>
+        <select id="bt-rebalance">
+          <option value="weekly">Weekly</option>
+          <option value="monthly" selected>Monthly</option>
+          <option value="quarterly">Quarterly</option>
+        </select>
+        <input id="bt-benchmark" type="text" value="SPY" size="6" title="Benchmark" />
+        <button type="submit" id="bt-run">Run backtest</button>
+      </form>
+      <p id="bt-status" class="empty hidden"></p>
+    </section>
+    <section id="bt-results" class="hidden">
+      <section class="kpi-row" id="bt-metrics"></section>
+      <div class="card">
+        <h2>Backtest Curve <span class="hint">(indexed to 100)</span></h2>
+        <div class="chart-box"><canvas id="bt-chart"></canvas></div>
+      </div>
+    </section>
   </main>
 
   <!-- ===== Journal ===== -->
@@ -108,6 +156,18 @@
       <div class="modal-actions">
         <button id="approve-no" class="btn-secondary">Deny</button>
         <button id="approve-yes" class="btn-primary">Approve Order</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== Auth token modal ===== -->
+  <div id="token-overlay" class="overlay hidden">
+    <div class="modal">
+      <h2>Dashboard Token Required</h2>
+      <p class="empty" style="margin-bottom:12px">This dashboard is protected. Enter the JARVIS_DASHBOARD_TOKEN value.</p>
+      <input id="token-input" type="password" placeholder="token…" class="token-input" />
+      <div class="modal-actions">
+        <button id="token-save" class="btn-primary">Unlock</button>
       </div>
     </div>
   </div>

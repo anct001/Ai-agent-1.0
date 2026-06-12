@@ -8,6 +8,37 @@ const sign = (v) => (v > 0 ? "+" : "");
 
 let equityChart = null;
 let allocChart = null;
+let sectorChart = null;
+let btChart = null;
+
+/* ---------- auth (Bearer token, only enforced when the server has one) ---------- */
+function authHeaders() {
+  const token = localStorage.getItem("jarvis_token");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+async function api(path, options = {}) {
+  const resp = await fetch(path, {
+    ...options,
+    headers: { ...(options.headers || {}), ...authHeaders() },
+  });
+  if (resp.status === 401) {
+    $("#token-overlay").classList.remove("hidden");
+    throw new Error("unauthorized");
+  }
+  return resp;
+}
+
+const apiJson = (path, options) => api(path, options).then((r) => r.json());
+
+$("#token-save").addEventListener("click", () => {
+  localStorage.setItem("jarvis_token", $("#token-input").value.trim());
+  $("#token-overlay").classList.add("hidden");
+  boot();
+});
+$("#token-input").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("#token-save").click();
+});
 
 /* ---------- tabs ---------- */
 document.querySelectorAll(".tab").forEach((btn) => {
@@ -23,7 +54,7 @@ document.querySelectorAll(".tab").forEach((btn) => {
 
 /* ---------- overview ---------- */
 async function loadPortfolio() {
-  const p = await fetch("/api/portfolio").then((r) => r.json());
+  const p = await apiJson("/api/portfolio");
 
   const badge = $("#mode-badge");
   badge.textContent = p.mode === "paper" ? "Paper trading" : "LIVE";
@@ -51,7 +82,63 @@ async function loadPortfolio() {
 
   renderPositions(p.positions);
   renderAllocation(p);
+  renderSectors(p.sector_allocation || {});
   renderRisk(p.risk_limits);
+}
+
+function renderSectors(sectors) {
+  const entries = Object.entries(sectors);
+  const empty = $("#sector-empty");
+  const ctx = $("#sector-chart");
+  if (sectorChart) sectorChart.destroy();
+  if (!entries.length) {
+    empty.classList.remove("hidden");
+    return;
+  }
+  empty.classList.add("hidden");
+  sectorChart = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: entries.map(([k]) => k),
+      datasets: [{ data: entries.map(([, v]) => v), backgroundColor: PALETTE, borderColor: "#141923", borderWidth: 2 }],
+    },
+    options: {
+      maintainAspectRatio: false,
+      cutout: "62%",
+      plugins: {
+        legend: { position: "right", labels: { color: "#8b97ab", boxWidth: 12 } },
+        tooltip: { callbacks: { label: (c) => ` ${c.label}: ${fmtUsd(c.parsed)}` } },
+      },
+    },
+  });
+}
+
+async function loadAlerts() {
+  let alerts;
+  try {
+    alerts = await apiJson("/api/alerts");
+  } catch {
+    return;
+  }
+  const banner = $("#alerts-banner");
+  if (alerts.length) {
+    const critical = alerts.some((a) => a.severity === "critical");
+    banner.className = `alerts-banner ${critical ? "critical" : ""}`;
+    banner.innerHTML = alerts.map((a) => `⚠ <strong>${a.title}</strong> — ${a.detail}`).join("<br/>");
+    banner.classList.remove("hidden");
+  } else {
+    banner.classList.add("hidden");
+  }
+  $("#alerts-list").innerHTML = alerts.length
+    ? alerts
+        .map(
+          (a) => `<div class="alert-item ${a.severity}">
+            <div class="t">${a.title}</div>
+            <div class="d">${a.detail}</div>
+          </div>`
+        )
+        .join("")
+    : `<span class="empty">No alerts today — thresholds are configurable in .env.</span>`;
 }
 
 function renderPositions(positions) {
@@ -118,7 +205,7 @@ function renderRisk(limits) {
 }
 
 async function loadHistory() {
-  const series = await fetch("/api/history").then((r) => r.json());
+  const series = await apiJson("/api/history");
   const empty = $("#equity-empty");
   if (series.length < 2) {
     empty.classList.remove("hidden");
@@ -165,7 +252,7 @@ async function loadHistory() {
 }
 
 async function loadMacro() {
-  const macro = await fetch("/api/macro").then((r) => r.json());
+  const macro = await apiJson("/api/macro");
   const tiles = [];
   for (const [name, d] of Object.entries(macro)) {
     if (name === "yield_curve_10y_minus_3m") {
@@ -192,7 +279,7 @@ async function loadMacro() {
 
 /* ---------- journal ---------- */
 async function loadJournal() {
-  const j = await fetch("/api/journal").then((r) => r.json());
+  const j = await apiJson("/api/journal");
   $("#theses-list").innerHTML = j.theses.length
     ? j.theses
         .map(
@@ -222,7 +309,7 @@ async function loadJournal() {
 
 /* ---------- trades ---------- */
 async function loadTrades() {
-  const trades = await fetch("/api/trades").then((r) => r.json());
+  const trades = await apiJson("/api/trades");
   const table = $("#trades-table");
   if (!trades.length) {
     table.innerHTML = `<tr><td class="empty">No trades yet.</td></tr>`;
@@ -289,7 +376,7 @@ function showApproval(req) {
 
   const decide = (approve) => {
     $("#approval-overlay").classList.add("hidden");
-    fetch(`/api/approval/${req.id}`, {
+    api(`/api/approval/${req.id}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ approve }),
@@ -305,7 +392,7 @@ async function sendChat(message) {
   const agentEl = addMsg("agent", "");
 
   try {
-    const resp = await fetch("/api/chat", {
+    const resp = await api("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ message }),
@@ -352,9 +439,168 @@ document.querySelectorAll(".chip").forEach((chip) =>
   })
 );
 
+/* ---------- chat persistence ---------- */
+async function loadChatHistory() {
+  let transcript;
+  try {
+    transcript = await apiJson("/api/chat/history");
+  } catch {
+    return;
+  }
+  if (!transcript.length) return;
+  chatMessages.innerHTML = "";
+  for (const msg of transcript) {
+    if (msg.role === "user") addMsg("user", msg.text);
+    else appendAgentText(addMsg("agent", ""), msg.text);
+  }
+}
+
+$("#chat-reset").addEventListener("click", async () => {
+  if (!confirm("Start a new conversation? The journal and portfolio are kept.")) return;
+  await api("/api/chat/reset", { method: "POST" });
+  chatMessages.innerHTML = "";
+  addMsg("agent", "Fresh start. The portfolio, journal, and trade history are all intact — what's next?");
+});
+
+/* ---------- backtest ---------- */
+function parseWeights(text) {
+  const weights = {};
+  for (const part of text.split(",")) {
+    const [sym, w] = part.split("=").map((s) => s.trim());
+    if (!sym || !w || isNaN(parseFloat(w))) throw new Error(`Cannot parse "${part.trim()}" — use SYM=0.4`);
+    weights[sym.toUpperCase()] = parseFloat(w);
+  }
+  return weights;
+}
+
+$("#backtest-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const status = $("#bt-status");
+  const runBtn = $("#bt-run");
+  let weights;
+  try {
+    weights = parseWeights($("#bt-weights").value);
+  } catch (err) {
+    status.textContent = err.message;
+    status.classList.remove("hidden");
+    return;
+  }
+  runBtn.disabled = true;
+  status.textContent = "Downloading history and simulating…";
+  status.classList.remove("hidden");
+  try {
+    const resp = await api("/api/backtest", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        weights,
+        period: $("#bt-period").value,
+        rebalance: $("#bt-rebalance").value,
+        benchmark: $("#bt-benchmark").value.trim().toUpperCase() || "SPY",
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || resp.statusText);
+    }
+    renderBacktest(await resp.json());
+    status.classList.add("hidden");
+  } catch (err) {
+    status.textContent = `Backtest failed: ${err.message}`;
+  } finally {
+    runBtn.disabled = false;
+  }
+});
+
+function renderBacktest(r) {
+  $("#bt-results").classList.remove("hidden");
+  const p = r.portfolio;
+  const b = r.benchmark || {};
+  const metric = (label, val, benchVal, suffix = "%") => ({
+    label,
+    value: `${val}${suffix}`,
+    delta: benchVal !== undefined ? `${r.benchmark_symbol}: ${benchVal}${suffix}` : "",
+    valueClass: label.includes("drawdown") ? "down" : cls(val),
+  });
+  const kpis = [
+    metric("Total return", p.total_return_pct, b.total_return_pct),
+    metric("CAGR", p.cagr_pct, b.cagr_pct),
+    metric("Volatility", p.annualized_volatility_pct, b.annualized_volatility_pct),
+    metric("Sharpe", p.sharpe_ratio, b.sharpe_ratio, ""),
+    metric("Max drawdown", p.max_drawdown_pct, b.max_drawdown_pct),
+  ];
+  if (r.excess_cagr_pct !== undefined) {
+    kpis.push({
+      label: "Excess CAGR",
+      value: `${sign(r.excess_cagr_pct)}${r.excess_cagr_pct} pp`,
+      delta: "vs benchmark",
+      valueClass: cls(r.excess_cagr_pct),
+    });
+  }
+  $("#bt-metrics").innerHTML = kpis
+    .map(
+      (k) => `<div class="kpi">
+        <div class="label">${k.label}</div>
+        <div class="value ${k.valueClass || ""}">${k.value}</div>
+        ${k.delta ? `<div class="delta flat">${k.delta}</div>` : ""}
+      </div>`
+    )
+    .join("");
+
+  const ctx = $("#bt-chart");
+  if (btChart) btChart.destroy();
+  btChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: r.curve.map((s) => s.date),
+      datasets: [
+        {
+          label: "Strategy",
+          data: r.curve.map((s) => s.portfolio_idx),
+          borderColor: "#3ecf8e",
+          backgroundColor: "rgba(62,207,142,.12)",
+          fill: true,
+          tension: 0.25,
+          pointRadius: 0,
+        },
+        {
+          label: r.benchmark_symbol || "Benchmark",
+          data: r.curve.map((s) => s.benchmark_idx ?? null),
+          borderColor: "#8b97ab",
+          borderDash: [6, 4],
+          fill: false,
+          tension: 0.25,
+          pointRadius: 0,
+        },
+      ],
+    },
+    options: {
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: { legend: { labels: { color: "#8b97ab" } } },
+      scales: {
+        x: { ticks: { color: "#8b97ab", maxTicksLimit: 10 }, grid: { color: "#1b2230" } },
+        y: { ticks: { color: "#8b97ab" }, grid: { color: "#1b2230" } },
+      },
+    },
+  });
+}
+
 /* ---------- boot ---------- */
-loadPortfolio();
-loadHistory();
-loadMacro();
-setInterval(loadPortfolio, 90_000);
+async function boot() {
+  try {
+    await loadPortfolio();
+  } catch (err) {
+    if (err.message === "unauthorized") return; // token modal is up
+    throw err;
+  }
+  loadHistory();
+  loadMacro();
+  loadAlerts();
+  loadChatHistory();
+}
+
+boot();
+setInterval(() => loadPortfolio().catch(() => {}), 90_000);
 setInterval(loadMacro, 300_000);
+setInterval(loadAlerts, 120_000);

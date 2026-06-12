@@ -8,6 +8,7 @@ anything executes.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 from typing import Callable
 
 import anthropic
@@ -128,6 +129,42 @@ TOOLS = [
         },
     },
     {
+        "name": "run_backtest",
+        "description": (
+            "Backtest a target-weight allocation against historical prices "
+            "before committing capital: returns CAGR, volatility, Sharpe, "
+            "max drawdown, and the comparison vs a benchmark. Call this "
+            "whenever you propose a portfolio allocation or want to sanity-"
+            "check a strategy against history. Weights are fractions of "
+            "equity; any remainder is held as cash."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "weights": {
+                    "type": "object",
+                    "description": 'e.g. {"NVDA": 0.3, "MSFT": 0.3, "GLD": 0.2}',
+                    "additionalProperties": {"type": "number"},
+                },
+                "period": {
+                    "type": "string",
+                    "enum": ["1y", "2y", "5y", "10y", "max"],
+                    "description": "Lookback window (default 5y)",
+                },
+                "rebalance": {
+                    "type": "string",
+                    "enum": ["weekly", "monthly", "quarterly"],
+                    "description": "Rebalancing cadence (default monthly)",
+                },
+                "benchmark": {
+                    "type": "string",
+                    "description": "Benchmark ticker (default SPY)",
+                },
+            },
+            "required": ["weights"],
+        },
+    },
+    {
         "name": "record_thesis",
         "description": (
             "Persist an investment thesis to the journal. Call this whenever "
@@ -205,9 +242,11 @@ class InvestmentAgent:
         risk: RiskManager,
         journal: Journal,
         approve_fn: Callable[[dict], bool] | None = None,
+        history_path: Path | None = None,
     ):
         """approve_fn receives the order dict and returns True to execute.
-        When None, orders auto-approve (use only with the paper broker)."""
+        When None, orders auto-approve (use only with the paper broker).
+        history_path, when set, persists the conversation across restarts."""
         self.client = anthropic.Anthropic()
         self.settings = settings
         self.portfolio = portfolio
@@ -215,7 +254,8 @@ class InvestmentAgent:
         self.risk = risk
         self.journal = journal
         self.approve_fn = approve_fn
-        self.messages: list[dict] = []
+        self.history_path = history_path
+        self.messages: list[dict] = self._load_history()
 
     # ---------- tool dispatch ----------
 
@@ -237,7 +277,20 @@ class InvestmentAgent:
         snap = self.portfolio.snapshot(market_data.last_price)
         snap["broker"] = self.broker.name
         snap["risk_limits"] = self.risk.describe()
+        snap["sector_allocation"] = market_data.sector_allocation(snap["positions"])
         return snap
+
+    def _tool_run_backtest(self, args: dict):
+        from .backtest import run_backtest
+
+        result = run_backtest(
+            args["weights"],
+            period=args.get("period", "5y"),
+            rebalance=args.get("rebalance", "monthly"),
+            benchmark_symbol=args.get("benchmark", "SPY"),
+        )
+        result.pop("curve", None)  # chart data is for the UI, not the model
+        return result
 
     def _tool_place_order(self, args: dict):
         symbol = args["symbol"].upper()
@@ -298,6 +351,66 @@ class InvestmentAgent:
         if handler is None:
             raise ValueError(f"Unknown tool: {name}")
         return handler(args)
+
+    # ---------- conversation persistence ----------
+
+    MAX_HISTORY_MESSAGES = 60
+
+    def _load_history(self) -> list[dict]:
+        if self.history_path and self.history_path.exists():
+            try:
+                return json.loads(self.history_path.read_text())
+            except json.JSONDecodeError:
+                return []
+        return []
+
+    @staticmethod
+    def _serializable(messages: list[dict]) -> list[dict]:
+        out = []
+        for msg in messages:
+            content = msg["content"]
+            if isinstance(content, list):
+                content = [
+                    b.model_dump(exclude_none=True) if hasattr(b, "model_dump") else b
+                    for b in content
+                ]
+            out.append({"role": msg["role"], "content": content})
+        return out
+
+    def _trim_history(self) -> None:
+        """Bound context size; cut only at a real user-text message so
+        tool_use/tool_result pairs are never orphaned."""
+        if len(self.messages) <= self.MAX_HISTORY_MESSAGES:
+            return
+        for i in range(len(self.messages) - self.MAX_HISTORY_MESSAGES, len(self.messages)):
+            msg = self.messages[i]
+            if msg["role"] == "user" and isinstance(msg["content"], str):
+                self.messages = self.messages[i:]
+                return
+
+    def _save_history(self) -> None:
+        self._trim_history()
+        # Normalize to plain dicts in memory too — the API accepts dict
+        # content, and it keeps downstream handling uniform.
+        self.messages = self._serializable(self.messages)
+        if self.history_path:
+            self.history_path.write_text(json.dumps(self.messages))
+
+    def transcript(self) -> list[dict]:
+        """Displayable history: user text and assistant text only."""
+        out = []
+        for msg in self._serializable(self.messages):
+            if msg["role"] == "user" and isinstance(msg["content"], str):
+                out.append({"role": "user", "text": msg["content"]})
+            elif msg["role"] == "assistant":
+                text = "".join(
+                    b.get("text", "")
+                    for b in msg["content"]
+                    if isinstance(b, dict) and b.get("type") == "text"
+                )
+                if text.strip():
+                    out.append({"role": "agent", "text": text})
+        return out
 
     # ---------- agent loop ----------
 
@@ -368,13 +481,21 @@ class InvestmentAgent:
 
             break  # end_turn, max_tokens, refusal — turn is over
 
+        self._save_history()
         last = self.messages[-1]
         if last["role"] != "assistant":
             return ""
+        # After _save_history, content blocks are plain dicts.
         return next(
-            (b.text for b in last["content"] if getattr(b, "type", None) == "text"),
+            (
+                b["text"]
+                for b in last["content"]
+                if isinstance(b, dict) and b.get("type") == "text"
+            ),
             "",
         )
 
     def reset(self) -> None:
         self.messages = []
+        if self.history_path and self.history_path.exists():
+            self.history_path.unlink()

@@ -2,13 +2,18 @@
 
     python -m jarvis dashboard          # http://127.0.0.1:8000
 
-Endpoints:
+Endpoints (all under /api require "Authorization: Bearer <token>" when
+JARVIS_DASHBOARD_TOKEN is set):
     GET  /                      dashboard SPA
-    GET  /api/portfolio         snapshot + risk limits (records equity history)
+    GET  /api/portfolio         snapshot + sectors + risk limits
     GET  /api/history           normalized equity curve vs S&P 500
     GET  /api/macro             macro regime snapshot (cached 5 min)
     GET  /api/trades            trade ledger
     GET  /api/journal           theses + lessons
+    GET  /api/alerts            evaluate + return today's alerts
+    POST /api/backtest          run a target-weight backtest
+    GET  /api/chat/history      displayable conversation transcript
+    POST /api/chat/reset        clear the conversation
     POST /api/chat              SSE stream of agent events for one message
     POST /api/approval/{id}     resolve a pending order approval
 """
@@ -22,11 +27,12 @@ import time
 import uuid
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from .alerts import AlertManager
 from .config import settings
 from .history import EquityHistory
 from .memory import Journal
@@ -86,6 +92,7 @@ class AppState:
         self.risk = RiskManager(settings.risk)
         self.journal = Journal(settings.data_dir)
         self.history = EquityHistory(settings.data_dir / "equity_history.json")
+        self.alerts = AlertManager(settings)
         self.approvals = ApprovalHub()
         self.chat_lock = threading.Lock()  # one agent turn at a time
         self._macro_cache: tuple[float, dict] | None = None
@@ -108,11 +115,22 @@ class AppState:
                     self.market_data.last_price,
                 )
             else:
-                broker = PaperBroker(self.portfolio, self.market_data.last_price)
+                broker = PaperBroker(
+                    self.portfolio,
+                    self.market_data.last_price,
+                    slippage_bps=settings.fill_slippage_bps,
+                    commission=settings.commission_per_order,
+                )
 
             approve_fn = None if settings.auto_approve else self.approvals.approve_fn
             self._agent = InvestmentAgent(
-                settings, self.portfolio, broker, self.risk, self.journal, approve_fn
+                settings,
+                self.portfolio,
+                broker,
+                self.risk,
+                self.journal,
+                approve_fn,
+                history_path=settings.data_dir / "chat_history.json",
             )
         return self._agent
 
@@ -126,19 +144,45 @@ class AppState:
         self._macro_cache = (now, snap)
         return snap
 
+    def snapshot(self) -> dict:
+        snap = self.portfolio.snapshot(self.market_data.last_price)
+        snap["mode"] = settings.execution_mode
+        snap["auto_approve"] = settings.auto_approve
+        snap["risk_limits"] = self.risk.describe()
+        for pos in snap["positions"]:
+            pos["sector"] = self.market_data.get_sector(pos["symbol"])
+        snap["sector_allocation"] = {}
+        for pos in snap["positions"]:
+            snap["sector_allocation"][pos["sector"]] = round(
+                snap["sector_allocation"].get(pos["sector"], 0.0) + pos["value"], 2
+            )
+        return snap
+
 
 state = AppState()
 app = FastAPI(title="JARVIS Dashboard")
 
 
+# ---------- auth ----------
+
+def _require_auth(request: Request) -> None:
+    token = settings.dashboard_token
+    if not token:
+        return
+    supplied = request.headers.get("authorization", "")
+    if supplied != f"Bearer {token}":
+        raise HTTPException(status_code=401, detail="Invalid or missing token")
+
+
+api = APIRouter(prefix="/api")
+
+
 # ---------- API ----------
 
-@app.get("/api/portfolio")
-def api_portfolio():
-    snap = state.portfolio.snapshot(state.market_data.last_price)
-    snap["mode"] = settings.execution_mode
-    snap["auto_approve"] = settings.auto_approve
-    snap["risk_limits"] = state.risk.describe()
+@api.get("/portfolio")
+def api_portfolio(request: Request):
+    _require_auth(request)
+    snap = state.snapshot()
     try:
         benchmark = state.market_data.last_price("^GSPC")
     except Exception:
@@ -147,39 +191,90 @@ def api_portfolio():
     return snap
 
 
-@app.get("/api/history")
-def api_history():
+@api.get("/history")
+def api_history(request: Request):
+    _require_auth(request)
     return state.history.read()
 
 
-@app.get("/api/macro")
-def api_macro():
+@api.get("/macro")
+def api_macro(request: Request):
+    _require_auth(request)
     return state.macro()
 
 
-@app.get("/api/trades")
-def api_trades():
+@api.get("/trades")
+def api_trades(request: Request):
+    _require_auth(request)
     return list(reversed(state.portfolio.trades[-200:]))
 
 
-@app.get("/api/journal")
-def api_journal():
+@api.get("/journal")
+def api_journal(request: Request):
+    _require_auth(request)
     data = state.journal.read(limit=50)
     data["theses"].reverse()
     data["lessons"].reverse()
     return data
 
 
+@api.get("/alerts")
+def api_alerts(request: Request):
+    _require_auth(request)
+    try:
+        snap = state.snapshot()
+    except Exception:
+        return []
+    return state.alerts.process(snap, state.history.read())
+
+
+class BacktestRequest(BaseModel):
+    weights: dict[str, float]
+    period: str = "5y"
+    rebalance: str = "monthly"
+    benchmark: str = "SPY"
+
+
+@api.post("/backtest")
+def api_backtest(req: BacktestRequest, request: Request):
+    _require_auth(request)
+    from .backtest import run_backtest
+
+    try:
+        return run_backtest(
+            req.weights,
+            period=req.period,
+            rebalance=req.rebalance,
+            benchmark_symbol=req.benchmark,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@api.get("/chat/history")
+def api_chat_history(request: Request):
+    _require_auth(request)
+    return state.agent.transcript()
+
+
+@api.post("/chat/reset")
+def api_chat_reset(request: Request):
+    _require_auth(request)
+    state.agent.reset()
+    return {"reset": True}
+
+
 class ChatRequest(BaseModel):
     message: str
 
 
-@app.post("/api/chat")
-def api_chat(req: ChatRequest):
+@api.post("/chat")
+def api_chat(req: ChatRequest, request: Request):
     """Run one agent turn, streaming events as SSE.
 
     Event types: text, approval_request, error, done.
     """
+    _require_auth(request)
     q: queue.Queue = queue.Queue()
     state.approvals.emit = q.put
 
@@ -223,10 +318,14 @@ class ApprovalDecision(BaseModel):
     approve: bool
 
 
-@app.post("/api/approval/{req_id}")
-def api_approval(req_id: str, decision: ApprovalDecision):
+@api.post("/approval/{req_id}")
+def api_approval(req_id: str, decision: ApprovalDecision, request: Request):
+    _require_auth(request)
     ok = state.approvals.resolve(req_id, decision.approve)
     return {"resolved": ok}
+
+
+app.include_router(api)
 
 
 # ---------- static frontend ----------

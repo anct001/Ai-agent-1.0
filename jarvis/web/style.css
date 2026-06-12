@@ -150,6 +150,39 @@ td.rationale { text-align: left; white-space: normal; min-width: 240px; color: v
 .chat-input button:disabled { opacity: .5; cursor: wait; }
 .btn-secondary { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
 
+/* ---------- alerts ---------- */
+.alerts-banner {
+  margin: 12px 24px 0; padding: 10px 16px; border-radius: 10px;
+  background: rgba(255,193,107,.1); border: 1px solid var(--amber);
+  color: var(--amber); font-size: 13px; line-height: 1.6;
+}
+.alerts-banner.critical { background: rgba(255,107,107,.1); border-color: var(--red); color: var(--red); }
+.alert-item { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+.alert-item .t { font-weight: 600; }
+.alert-item.warning .t { color: var(--amber); }
+.alert-item.critical .t { color: var(--red); }
+.alert-item .d { color: var(--muted); font-size: 12px; margin-top: 4px; }
+.chart-box.small { height: 240px; }
+.chip-danger { border-color: rgba(255,107,107,.4); }
+.chip-danger:hover { border-color: var(--red); color: var(--red); }
+
+/* ---------- backtest ---------- */
+.bt-form { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+.bt-form input, .bt-form select {
+  background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+  color: var(--text); padding: 11px 13px; font-size: 14px;
+}
+.bt-form input#bt-weights { flex: 1; min-width: 260px; }
+.bt-form button {
+  background: var(--accent); color: #0a0f16; border: none; border-radius: 10px;
+  padding: 11px 20px; font-weight: 600; cursor: pointer;
+}
+.bt-form button:disabled { opacity: .5; cursor: wait; }
+.token-input {
+  width: 100%; background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 10px; color: var(--text); padding: 12px 14px; font-size: 14px;
+}
+
 /* ---------- approval modal ---------- */
 .overlay {
   position: fixed; inset: 0; background: rgba(5,8,12,.75);
