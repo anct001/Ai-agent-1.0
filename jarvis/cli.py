@@ -4,6 +4,7 @@
     python -m jarvis analyze NVDA        VC-style deep-dive on one ticker
     python -m jarvis briefing            daily macro + portfolio briefing
     python -m jarvis auto [--interval N] autonomous management loop
+    python -m jarvis dashboard           web dashboard at localhost:8000
     python -m jarvis portfolio           print holdings (no LLM call)
 """
 
@@ -131,6 +132,15 @@ def cmd_auto(args) -> None:
             break
 
 
+def cmd_dashboard(args) -> None:
+    try:
+        import uvicorn
+    except ImportError:
+        sys.exit("The dashboard needs fastapi and uvicorn: pip install -r requirements.txt")
+    print(f"JARVIS dashboard → http://{args.host}:{args.port}")
+    uvicorn.run("jarvis.server:app", host=args.host, port=args.port, log_level="warning")
+
+
 def cmd_portfolio(args) -> None:
     from .tools import market_data
 
@@ -178,6 +188,11 @@ def main() -> None:
     )
     p_auto.add_argument("--once", action="store_true", help="run a single cycle")
     p_auto.set_defaults(func=cmd_auto)
+
+    p_dash = sub.add_parser("dashboard", help="launch the web dashboard")
+    p_dash.add_argument("--host", default="127.0.0.1", help="bind address")
+    p_dash.add_argument("--port", type=int, default=8000)
+    p_dash.set_defaults(func=cmd_dashboard)
 
     sub.add_parser("portfolio", help="print holdings").set_defaults(
         func=cmd_portfolio

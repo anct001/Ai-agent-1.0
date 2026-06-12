@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JARVIS — Investment Agent</title>
+  <link rel="stylesheet" href="/static/style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">◆</span>
+      <h1>JARVIS</h1>
+      <span class="subtitle">AI Investment Agent</span>
+    </div>
+    <div class="header-right">
+      <span id="mode-badge" class="badge">…</span>
+      <span id="equity-ticker" class="equity-ticker"></span>
+    </div>
+  </header>
+
+  <nav>
+    <button class="tab active" data-tab="overview">Overview</button>
+    <button class="tab" data-tab="chat">Chat</button>
+    <button class="tab" data-tab="journal">Journal</button>
+    <button class="tab" data-tab="trades">Trades</button>
+  </nav>
+
+  <!-- ===== Overview ===== -->
+  <main id="tab-overview" class="tab-panel active">
+    <section class="kpi-row" id="kpi-row"></section>
+
+    <section class="grid-2">
+      <div class="card">
+        <h2>Equity vs S&amp;P 500 <span class="hint">(indexed to 100)</span></h2>
+        <div class="chart-box"><canvas id="equity-chart"></canvas></div>
+        <p id="equity-empty" class="empty hidden">History builds up as the dashboard and agent run day over day.</p>
+      </div>
+      <div class="card">
+        <h2>Allocation</h2>
+        <div class="chart-box donut"><canvas id="alloc-chart"></canvas></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Macro Regime</h2>
+      <div id="macro-grid" class="macro-grid"><span class="empty">Loading market proxies…</span></div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card">
+        <h2>Positions</h2>
+        <div class="table-wrap"><table id="positions-table"></table></div>
+      </div>
+      <div class="card">
+        <h2>Risk Limits <span class="hint">(enforced in code)</span></h2>
+        <div id="risk-grid" class="risk-grid"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== Chat ===== -->
+  <main id="tab-chat" class="tab-panel">
+    <div class="chat-layout card">
+      <div id="chat-messages" class="chat-messages">
+        <div class="msg agent">Ask me about the macro regime, a specific ticker, or tell me to review the portfolio. I'll pull live data, search the news, and — with your approval — trade.</div>
+      </div>
+      <div class="quick-actions">
+        <button class="chip" data-prompt="Give me today's macro and portfolio briefing.">Daily briefing</button>
+        <button class="chip" data-prompt="Review every open position against its thesis and tell me if anything should change.">Review portfolio</button>
+        <button class="chip" data-prompt="Find one asymmetric, VC-style opportunity in the current market and build the thesis.">Find an asymmetric bet</button>
+      </div>
+      <form id="chat-form" class="chat-input">
+        <input id="chat-text" type="text" placeholder="Message JARVIS…" autocomplete="off" />
+        <button type="submit" id="chat-send">Send</button>
+      </form>
+    </div>
+  </main>
+
+  <!-- ===== Journal ===== -->
+  <main id="tab-journal" class="tab-panel">
+    <section class="grid-2">
+      <div class="card">
+        <h2>Investment Theses</h2>
+        <div id="theses-list" class="stack"></div>
+      </div>
+      <div class="card">
+        <h2>Lessons Learned</h2>
+        <div id="lessons-list" class="stack"></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== Trades ===== -->
+  <main id="tab-trades" class="tab-panel">
+    <section class="card">
+      <h2>Trade Ledger</h2>
+      <div class="table-wrap"><table id="trades-table"></table></div>
+    </section>
+  </main>
+
+  <!-- ===== Order approval modal ===== -->
+  <div id="approval-overlay" class="overlay hidden">
+    <div class="modal">
+      <h2>Order Approval Required</h2>
+      <div id="approval-body" class="approval-body"></div>
+      <div class="modal-actions">
+        <button id="approve-no" class="btn-secondary">Deny</button>
+        <button id="approve-yes" class="btn-primary">Approve Order</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
