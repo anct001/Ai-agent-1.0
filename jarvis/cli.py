@@ -5,6 +5,7 @@
     python -m jarvis briefing            daily macro + portfolio briefing
     python -m jarvis auto [--interval N] autonomous management loop
     python -m jarvis dashboard           web dashboard at localhost:8000
+    python -m jarvis telegram            control the agent from Telegram
     python -m jarvis models [list|pull|use [name]]  manage local AI models
     python -m jarvis backtest "NVDA=0.4,GLD=0.2"    backtest an allocation
     python -m jarvis strategy NVDA --type sma_cross  backtest a timing strategy
@@ -36,6 +37,18 @@ def _build_broker(portfolio):
             settings.alpaca_base_url,
             portfolio,
             market_data.last_price,
+        )
+    if settings.execution_mode == "crypto":
+        from .brokers.ccxt_broker import CCXTBroker
+
+        return CCXTBroker(
+            settings.ccxt_exchange,
+            settings.ccxt_api_key,
+            settings.ccxt_secret,
+            portfolio,
+            sandbox=settings.ccxt_sandbox,
+            password=settings.ccxt_password,
+            quote=settings.ccxt_quote,
         )
     from .brokers.paper import PaperBroker
 
@@ -124,11 +137,11 @@ def cmd_briefing(args) -> None:
 
 
 def cmd_auto(args) -> None:
-    if settings.execution_mode == "live" and not settings.auto_approve:
+    if settings.execution_mode in ("live", "crypto") and not settings.auto_approve:
         sys.exit(
-            "Refusing to run the autonomous loop in live mode without "
-            "AUTO_APPROVE=true. Set it explicitly if you accept unattended "
-            "live trading, or switch EXECUTION_MODE=paper."
+            f"Refusing to run the autonomous loop in {settings.execution_mode} "
+            "mode without AUTO_APPROVE=true. Set it explicitly if you accept "
+            "unattended real-money trading, or switch EXECUTION_MODE=paper."
         )
     print(
         f"Autonomous loop: {settings.execution_mode} mode, "
@@ -287,6 +300,20 @@ def cmd_models(args) -> None:
         return
 
 
+def cmd_telegram(args) -> None:
+    if not settings.telegram_bot_token:
+        sys.exit(
+            "Set TELEGRAM_BOT_TOKEN (get one from @BotFather) to run the bot. "
+            "Optionally set TELEGRAM_CHAT_ID to lock it to your chat."
+        )
+    if settings.execution_mode == "live" and not settings.auto_approve:
+        # Live trades are approved interactively via Telegram buttons — fine.
+        pass
+    from .telegram_bot import TelegramBot
+
+    TelegramBot(settings, _build_broker).run()
+
+
 def cmd_dashboard(args) -> None:
     try:
         import uvicorn
@@ -403,6 +430,10 @@ def main() -> None:
     )
     p_models.add_argument("name", nargs="?", help="model name (for pull/use)")
     p_models.set_defaults(func=cmd_models)
+
+    sub.add_parser("telegram", help="run the Telegram bot").set_defaults(
+        func=cmd_telegram
+    )
 
     p_dash = sub.add_parser("dashboard", help="launch the web dashboard")
     p_dash.add_argument("--host", default="127.0.0.1", help="bind address")

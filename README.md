@@ -58,8 +58,42 @@ python -m jarvis auto                       # autonomous loop (daily by default)
 python -m jarvis backtest "NVDA=0.4,GLD=0.2"  # backtest an allocation vs SPY
 python -m jarvis strategy NVDA --type sma_cross --stop-loss 8   # strategy backtest
 python -m jarvis models                     # list / pull / select local models
+python -m jarvis telegram                   # control the agent from Telegram
 python -m jarvis portfolio                  # print holdings (no LLM call)
 ```
+
+## Telegram bot
+
+`python -m jarvis telegram` lets you run the whole agent from your phone:
+
+- Send any message to chat (e.g. *"analyze NVDA"*) — replies stream in and
+  edit live; `/portfolio`, `/briefing`, `/reset`, `/help` commands too.
+- **Order approval by inline button** — when the agent wants to trade, you
+  get an Approve / Deny message; nothing executes until you tap (5-min
+  timeout = deny), exactly like the web modal.
+- **Alert push** — drawdown/stop alerts arrive in the chat as well.
+
+Set `TELEGRAM_BOT_TOKEN` (from [@BotFather](https://t.me/BotFather)); on first
+`/start` the bot prints your chat id — put it in `TELEGRAM_CHAT_ID` to lock
+the bot to you. The bot reuses the same persisted conversation, journal, and
+risk gate as the CLI and dashboard.
+
+## Crypto / multi-exchange (CCXT)
+
+Crypto symbols (`BTC-USD`, `ETH-USD`, …) already work in paper mode through
+the normal data path. For **live crypto execution** on 100+ exchanges, set
+`EXECUTION_MODE=crypto` and install CCXT (`pip install ccxt`):
+
+```bash
+EXECUTION_MODE=crypto CCXT_EXCHANGE=binance CCXT_API_KEY=... CCXT_SECRET=...
+```
+
+The broker maps yfinance-style tickers to exchange pairs (`BTC-USD` →
+`BTC/USDT`, configurable via `CCXT_QUOTE`), so quotes, the risk gate, and
+protective stops all keep working. It **defaults to the exchange sandbox**
+(`CCXT_SANDBOX=true`) — set it false only when you mean to trade real funds,
+and the autonomous loop still refuses unattended real-money trading without
+`AUTO_APPROVE=true`.
 
 ## Quant features (Freqtrade-style)
 
@@ -178,7 +212,8 @@ The regime is cautiously risk-on: the 10Y/3M curve has re-steepened to ...
 | `jarvis/memory.py` | Persistent journal: investment theses (with invalidation conditions) and lessons |
 | `jarvis/portfolio.py` | Local ledger: cash, positions, trade history, mark-to-market (JSON on disk) |
 | `jarvis/risk.py` | Hard order gate: per-order cap, concentration cap, cash floor, daily limit |
-| `jarvis/brokers/` | `PaperBroker` (default; simulated fills with configurable slippage + commission) and optional `AlpacaBroker` |
+| `jarvis/brokers/` | `PaperBroker` (default; slippage + commission), `AlpacaBroker` (equities), `CCXTBroker` (crypto, 100+ exchanges) |
+| `jarvis/telegram_bot.py` | Telegram long-poll bot: chat, commands, inline-button order approval |
 | `jarvis/backtest.py` | Target-weight backtester: rebalancing, trading costs, CAGR/Sharpe/drawdown vs benchmark |
 | `jarvis/alerts.py` | Alert rules (position/portfolio drawdown, daily move) + webhook/email fan-out, deduped daily |
 | `jarvis/history.py` | Daily equity-curve snapshots with S&P 500 benchmark, normalized for charting |
@@ -240,7 +275,7 @@ does **not** yet (an honest gap list, roughly by impact):
 
 | Area | Freqtrade | JARVIS today | Gap |
 |---|---|---|---|
-| **Live exchange execution** | Many crypto exchanges via CCXT | Paper default; Alpaca (US equities) only | No crypto/CCXT, no multi-exchange |
+| **Live exchange execution** | Many crypto exchanges via CCXT | Alpaca (equities) + CCXT (crypto, 100+ exchanges) ✅ | Comparable |
 | **Strategy backtesting** | Tick/candle-level, per-trade, with fees & slippage | Portfolio weight-level, daily bars | No signal/indicator-level engine |
 | **Strategy optimization** | Hyperopt (Bayesian param search) | none | No parameter optimization |
 | **Technical indicators** | Full TA-Lib / pandas-ta library | RSI, MACD, Bollinger, SMA/EMA, ATR ✅ | Smaller library |
@@ -250,7 +285,7 @@ does **not** yet (an honest gap list, roughly by impact):
 | **Dry-run vs live parity** | Same engine both modes | Separate paper/live brokers | Less battle-tested live path |
 | **Position management** | Per-trade stop-loss/ROI/timeouts | Auto stop-loss/trailing/take-profit ✅ | No time-based ROI tables |
 | **Plotting/analytics** | Detailed per-trade analysis, profit by pair | Equity curve, allocation, sectors | No per-trade attribution |
-| **Notifications** | Telegram bot (full control + commands) | Webhook + email alerts | No interactive bot control |
+| **Notifications** | Telegram bot (full control + commands) | Telegram bot (chat + approvals) + webhook + email ✅ | Comparable |
 | **Maturity** | Years of production use, large community | New project | Less hardened |
 
 Where JARVIS is **ahead** of Freqtrade: natural-language reasoning and thesis
@@ -260,12 +295,11 @@ crypto-first), and a conversational dashboard. The two are complementary:
 Freqtrade is the better *executor* of a fixed quantitative edge; JARVIS is the
 better *analyst and allocator*.
 
-The three highest-value gaps from this list — a technical-indicator tool,
-stop-loss/trailing-stop order types, and a signal-level backtester — are now
-implemented (see *Quant features* above). Remaining Freqtrade-ward steps:
-crypto/multi-exchange execution via CCXT, a Telegram interface mirroring the
-web chat, websocket price streaming, hyperparameter optimization, and
-limit/OCO order types.
+Most of this list is now implemented: technical indicators, stop-loss /
+trailing-stop order types, a signal-level backtester (*Quant features*),
+**crypto/multi-exchange execution via CCXT**, and a **Telegram interface**
+mirroring the web chat. Remaining Freqtrade-ward steps: websocket price
+streaming, hyperparameter optimization, and limit/OCO order types.
 
 ## Roadmap / known gaps
 
@@ -273,10 +307,9 @@ Previously listed gaps now shipped: backtesting, alerts (webhook + email),
 sector exposure, chat persistence, dashboard auth, realistic paper fills,
 Docker, local-model support (Ollama), and the **quant layer — technical
 indicators, stop-loss/trailing/take-profit protective orders, and a
-signal-level strategy backtester**. Still on the list:
+signal-level strategy backtester, crypto execution (CCXT), and a Telegram
+bot**. Still on the list:
 
-- **Crypto / multi-exchange execution** — equities (Alpaca) only today.
-- **Telegram bot** — interactive control mirroring the web chat.
 - **Limit / OCO orders + time-based ROI tables** — market + protective only.
 - **Websocket price streaming** — quotes are polled (60s cache).
 - **Hyperparameter optimization** — no Freqtrade-style Hyperopt yet.

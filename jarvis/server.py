@@ -112,6 +112,18 @@ class AppState:
                     self.portfolio,
                     self.market_data.last_price,
                 )
+            elif settings.execution_mode == "crypto":
+                from .brokers.ccxt_broker import CCXTBroker
+
+                self._broker = CCXTBroker(
+                    settings.ccxt_exchange,
+                    settings.ccxt_api_key,
+                    settings.ccxt_secret,
+                    self.portfolio,
+                    sandbox=settings.ccxt_sandbox,
+                    password=settings.ccxt_password,
+                    quote=settings.ccxt_quote,
+                )
             else:
                 from .brokers.paper import PaperBroker
 

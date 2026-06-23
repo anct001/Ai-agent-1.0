@@ -72,6 +72,14 @@ class Settings:
         "ALPACA_BASE_URL", "https://paper-api.alpaca.markets"
     )
 
+    # Crypto exchange (CCXT) — used when EXECUTION_MODE=crypto.
+    ccxt_exchange: str = os.getenv("CCXT_EXCHANGE", "binance")
+    ccxt_api_key: str = os.getenv("CCXT_API_KEY", "")
+    ccxt_secret: str = os.getenv("CCXT_SECRET", "")
+    ccxt_password: str = os.getenv("CCXT_PASSWORD", "")
+    ccxt_quote: str = os.getenv("CCXT_QUOTE", "USDT")
+    ccxt_sandbox: bool = _env_bool("CCXT_SANDBOX", True)
+
     # Dashboard auth: when set, every /api request must send
     # "Authorization: Bearer <token>".
     dashboard_token: str = os.getenv("JARVIS_DASHBOARD_TOKEN", "")
@@ -91,10 +99,15 @@ class Settings:
     smtp_password: str = os.getenv("SMTP_PASSWORD", "")
     alert_email_to: str = os.getenv("ALERT_EMAIL_TO", "")
 
+    # Telegram bot (interactive control + alert push)
+    telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    telegram_chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "")
+
     def __post_init__(self) -> None:
-        if self.execution_mode not in ("paper", "live"):
+        if self.execution_mode not in ("paper", "live", "crypto"):
             raise ValueError(
-                f"EXECUTION_MODE must be 'paper' or 'live', got {self.execution_mode!r}"
+                "EXECUTION_MODE must be 'paper', 'live', or 'crypto', "
+                f"got {self.execution_mode!r}"
             )
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self._apply_saved_llm_selection()
