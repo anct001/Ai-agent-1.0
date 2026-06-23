@@ -161,10 +161,26 @@ class AppState:
         engine = StopEngine(book, self.portfolio, self.broker, self.market_data.last_price)
         return engine.run()
 
+    def run_pending_orders(self) -> list[dict]:
+        from .orders import OrderBook, OrderEngine
+
+        book = OrderBook(settings.data_dir / "pending_orders.json")
+        if not book.all():
+            return []
+        engine = OrderEngine(
+            book, self.portfolio, self.broker, self.risk, self.market_data.last_price
+        )
+        return engine.run()
+
     def stop_orders(self) -> dict:
         from .stops import StopBook
 
         return StopBook(settings.data_dir / "stops.json").all()
+
+    def pending_orders(self) -> list[dict]:
+        from .orders import OrderBook
+
+        return OrderBook(settings.data_dir / "pending_orders.json").all()
 
     def rebuild_agent(self) -> None:
         """Drop the cached agent so the next turn picks up a backend change."""
@@ -193,6 +209,7 @@ class AppState:
                 snap["sector_allocation"].get(pos["sector"], 0.0) + pos["value"], 2
             )
         snap["protective_orders"] = self.stop_orders()
+        snap["pending_orders"] = self.pending_orders()
         return snap
 
 
@@ -258,9 +275,22 @@ def api_journal(request: Request):
 @api.get("/alerts")
 def api_alerts(request: Request):
     _require_auth(request)
-    # Protective stops run on this poll so triggered exits happen even when
-    # nobody is chatting; surface them as critical alerts.
+    # Pending limit/OCO orders and protective stops both run on this poll so
+    # triggers fire even when nobody is chatting; surface them as alerts.
     stop_alerts = []
+    try:
+        for ev in state.run_pending_orders():
+            if ev["status"] != "filled":
+                continue
+            stop_alerts.append(
+                {
+                    "severity": "info",
+                    "title": f"{ev['side'].upper()} {ev['symbol']} — {ev['trigger']} order filled",
+                    "detail": f"{ev['qty']} {ev['symbol']} @ ${ev['fill_price']:,.2f}.",
+                }
+            )
+    except Exception:
+        pass
     try:
         for ex in state.run_protective_stops():
             if "error" in ex:
@@ -285,6 +315,35 @@ def api_alerts(request: Request):
 def api_protective_orders(request: Request):
     _require_auth(request)
     return state.stop_orders()
+
+
+@api.get("/pending-orders")
+def api_pending_orders(request: Request):
+    _require_auth(request)
+    return state.pending_orders()
+
+
+class OptimizeRequest(BaseModel):
+    symbol: str
+    strategy: str = "sma_cross"
+    period: str = "5y"
+    objective: str = "sharpe"
+
+
+@api.post("/optimize")
+def api_optimize(req: OptimizeRequest, request: Request):
+    _require_auth(request)
+    from .optimize import run_optimize
+
+    try:
+        return run_optimize(
+            req.symbol,
+            strategy=req.strategy,
+            period=req.period,
+            objective=req.objective,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @api.get("/indicators")

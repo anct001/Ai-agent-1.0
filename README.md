@@ -57,6 +57,7 @@ python -m jarvis auto --once                # one autonomous management cycle
 python -m jarvis auto                       # autonomous loop (daily by default)
 python -m jarvis backtest "NVDA=0.4,GLD=0.2"  # backtest an allocation vs SPY
 python -m jarvis strategy NVDA --type sma_cross --stop-loss 8   # strategy backtest
+python -m jarvis optimize NVDA --type sma_cross   # grid-search strategy params
 python -m jarvis models                     # list / pull / select local models
 python -m jarvis telegram                   # control the agent from Telegram
 python -m jarvis portfolio                  # print holdings (no LLM call)
@@ -114,6 +115,17 @@ JARVIS now carries a technical-trading layer alongside its LLM reasoning:
   drawdown, and the comparison vs buy-and-hold. Use the **Strategy Backtest**
   card on the Backtest tab, the CLI (`jarvis strategy`), or the agent's
   `backtest_strategy` tool.
+- **Parameter optimization (Hyperopt-lite)** — grid-search a strategy's
+  parameters over history and rank them by Sharpe / return / CAGR, returning
+  the best settings and a leaderboard. **Optimize Parameters** card on the
+  Backtest tab, `jarvis optimize`, or the `optimize_strategy` tool.
+- **Resting orders — limit, stop, and OCO** — queue an entry/exit at a target
+  price instead of trading at market: limit buy (buy the dip), limit sell
+  (take profit), stop buy (breakout), stop sell (breakdown). Bracket a long
+  with a **one-cancels-other** take-profit + stop-loss pair. A monitor fills
+  triggered orders on every alert poll and autonomous cycle (re-validating
+  buys against the risk gate). Shown on the Overview tab; set them in chat or
+  via the `place_limit_order` / `place_oco_order` tools.
 
 ## Choosing the AI model (cloud or local)
 
@@ -220,6 +232,8 @@ The regime is cautiously risk-on: the 10Y/3M curve has re-steepened to ...
 | `jarvis/tools/indicators.py` | Technical indicators in pure pandas (RSI, MACD, Bollinger, SMA/EMA, ATR) |
 | `jarvis/strategy.py` | Signal-level strategy backtester (sma_cross/rsi/macd/bollinger) with fees + stop-loss |
 | `jarvis/stops.py` | Protective orders (stop-loss/trailing/take-profit) + auto-exit engine |
+| `jarvis/orders.py` | Resting limit/stop/OCO orders + trigger-fill engine (risk-revalidated) |
+| `jarvis/optimize.py` | Strategy parameter grid-search (Hyperopt-lite), ranked by objective |
 | `jarvis/toolkit.py` | Shared tool implementations + dual schema formats (Anthropic & OpenAI/Ollama) |
 | `jarvis/llm/ollama.py` | Local-model client: health, list, pull (streamed progress), chat |
 | `jarvis/server.py` | FastAPI backend: REST + SSE chat/pull streaming + browser order-approval hub + Bearer-token auth |
@@ -276,10 +290,9 @@ does **not** yet (an honest gap list, roughly by impact):
 | Area | Freqtrade | JARVIS today | Gap |
 |---|---|---|---|
 | **Live exchange execution** | Many crypto exchanges via CCXT | Alpaca (equities) + CCXT (crypto, 100+ exchanges) ✅ | Comparable |
-| **Strategy backtesting** | Tick/candle-level, per-trade, with fees & slippage | Portfolio weight-level, daily bars | No signal/indicator-level engine |
-| **Strategy optimization** | Hyperopt (Bayesian param search) | none | No parameter optimization |
 | **Technical indicators** | Full TA-Lib / pandas-ta library | RSI, MACD, Bollinger, SMA/EMA, ATR ✅ | Smaller library |
-| **Order types** | Limit, stop-loss, trailing stop, OCO | Market + stop-loss/trailing/take-profit ✅ | No limit/OCO |
+| **Order types** | Limit, stop-loss, trailing stop, OCO | Market + stop-loss/trailing/take-profit + limit/stop/OCO ✅ | Comparable |
+| **Strategy optimization** | Hyperopt (Bayesian param search) | Grid-search over params, ranked ✅ | Grid, not Bayesian |
 | **Strategy backtesting** | Tick/candle-level, per-trade | Signal-level + allocation-level ✅ | Not tick-level |
 | **Live price feed** | Websocket streaming | Polled quotes (60s cache) | No real-time stream |
 | **Dry-run vs live parity** | Same engine both modes | Separate paper/live brokers | Less battle-tested live path |
@@ -295,11 +308,12 @@ crypto-first), and a conversational dashboard. The two are complementary:
 Freqtrade is the better *executor* of a fixed quantitative edge; JARVIS is the
 better *analyst and allocator*.
 
-Most of this list is now implemented: technical indicators, stop-loss /
-trailing-stop order types, a signal-level backtester (*Quant features*),
-**crypto/multi-exchange execution via CCXT**, and a **Telegram interface**
-mirroring the web chat. Remaining Freqtrade-ward steps: websocket price
-streaming, hyperparameter optimization, and limit/OCO order types.
+Most of this list is now implemented: technical indicators, the full order
+type set (stop-loss / trailing / take-profit / limit / stop / OCO), a
+signal-level backtester, **parameter optimization**, **crypto/multi-exchange
+execution via CCXT**, and a **Telegram interface**. The main remaining
+Freqtrade edges are tick-level backtesting, websocket price streaming, and
+Bayesian (vs grid) optimization.
 
 ## Roadmap / known gaps
 
@@ -307,12 +321,14 @@ Previously listed gaps now shipped: backtesting, alerts (webhook + email),
 sector exposure, chat persistence, dashboard auth, realistic paper fills,
 Docker, local-model support (Ollama), and the **quant layer — technical
 indicators, stop-loss/trailing/take-profit protective orders, and a
-signal-level strategy backtester, crypto execution (CCXT), and a Telegram
-bot**. Still on the list:
+signal-level strategy backtester, parameter optimization, limit/stop/OCO
+resting orders, crypto execution (CCXT), and a Telegram bot**. Still on the
+list:
 
-- **Limit / OCO orders + time-based ROI tables** — market + protective only.
+- **Tick-level backtesting** — engine is signal/daily-bar level.
+- **Bayesian optimization** — current Hyperopt is grid-search.
 - **Websocket price streaming** — quotes are polled (60s cache).
-- **Hyperparameter optimization** — no Freqtrade-style Hyperopt yet.
+- **Time-based ROI tables** — protective exits, but no time-decay ROI.
 - **Factor/geography exposure** — sector view exists; no factor/regional split.
 - **Multi-user support** — single portfolio, single token, single owner.
 

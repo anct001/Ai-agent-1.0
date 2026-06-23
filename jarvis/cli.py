@@ -9,6 +9,7 @@
     python -m jarvis models [list|pull|use [name]]  manage local AI models
     python -m jarvis backtest "NVDA=0.4,GLD=0.2"    backtest an allocation
     python -m jarvis strategy NVDA --type sma_cross  backtest a timing strategy
+    python -m jarvis optimize NVDA --type sma_cross  tune strategy parameters
     python -m jarvis portfolio           print holdings (no LLM call)
 """
 
@@ -155,6 +156,7 @@ def cmd_auto(args) -> None:
         # disk, so context stays small and state stays on disk where it belongs.
         agent = _build_agent(auto_approve=True)
         try:
+            _run_pending_orders(agent.portfolio)
             _run_protective_stops(agent.portfolio)
             _run_alert_check(agent.portfolio)
             agent.run_turn(AUTO_CYCLE_PROMPT, _stream_print)
@@ -191,6 +193,31 @@ def _run_protective_stops(portfolio: Portfolio) -> None:
                 )
     except Exception as exc:
         print(f"[stop check failed: {exc}]", file=sys.stderr)
+
+
+def _run_pending_orders(portfolio: Portfolio) -> None:
+    """Fill any triggered limit/stop/OCO orders; never fatal."""
+    try:
+        from .orders import OrderBook, OrderEngine
+        from .tools import market_data
+
+        book = OrderBook(settings.data_dir / "pending_orders.json")
+        if not book.all():
+            return
+        broker = _build_broker(portfolio)
+        engine = OrderEngine(
+            book, portfolio, broker, RiskManager(settings.risk), market_data.last_price
+        )
+        for ev in engine.run():
+            if ev["status"] == "filled":
+                print(
+                    f"[ORDER] {ev['side'].upper()} {ev['qty']} {ev['symbol']} @ "
+                    f"${ev['fill_price']:,.2f} ({ev['trigger']} order filled)"
+                )
+            else:
+                print(f"[ORDER/{ev['status']}] {ev['symbol']}: {ev.get('reason', '')}")
+    except Exception as exc:
+        print(f"[pending-order check failed: {exc}]", file=sys.stderr)
 
 
 def _run_alert_check(portfolio: Portfolio) -> None:
@@ -242,6 +269,34 @@ def cmd_strategy(args) -> None:
         f"\nTrades: {result['num_trades']}  ·  win rate: {result['win_rate_pct']}%  "
         f"·  avg win: {result['avg_win_pct']}%  ·  avg loss: {result['avg_loss_pct']}%"
     )
+
+
+def cmd_optimize(args) -> None:
+    from .optimize import run_optimize
+
+    result = run_optimize(
+        args.symbol,
+        strategy=args.type,
+        period=args.period,
+        objective=args.objective,
+    )
+    print(
+        f"\n{result['symbol']} · {result['strategy']} · objective={result['objective']} "
+        f"· {result['combinations_tested']} combos tested\n"
+    )
+    best = result["best"]
+    print(f"Best params: {best['params']}")
+    print(
+        f"  return {best['total_return_pct']}%  ·  Sharpe {best['sharpe_ratio']}  "
+        f"·  maxDD {best['max_drawdown_pct']}%  ·  {best['num_trades']} trades  "
+        f"·  win {best['win_rate_pct']}%\n"
+    )
+    print("Leaderboard:")
+    for i, r in enumerate(result["leaderboard"], 1):
+        print(
+            f"  {i}. {r['params']}  →  score {r['score']}  "
+            f"(ret {r['total_return_pct']}%, Sharpe {r['sharpe_ratio']})"
+        )
 
 
 def cmd_models(args) -> None:
@@ -423,6 +478,19 @@ def main() -> None:
         "--stop-loss", type=float, default=None, help="stop-loss percent, e.g. 8"
     )
     p_strat.set_defaults(func=cmd_strategy)
+
+    p_opt = sub.add_parser("optimize", help="grid-search strategy parameters")
+    p_opt.add_argument("symbol")
+    p_opt.add_argument(
+        "--type",
+        default="sma_cross",
+        choices=["sma_cross", "rsi", "macd_cross", "bollinger"],
+    )
+    p_opt.add_argument("--period", default="5y")
+    p_opt.add_argument(
+        "--objective", default="sharpe", choices=["sharpe", "return", "cagr"]
+    )
+    p_opt.set_defaults(func=cmd_optimize)
 
     p_models = sub.add_parser("models", help="list / pull / select local AI models")
     p_models.add_argument(

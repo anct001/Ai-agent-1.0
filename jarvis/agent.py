@@ -267,13 +267,21 @@ class InvestmentAgent:
         approve_fn: Callable[[dict], bool] | None = None,
         history_path: Path | None = None,
     ):
+        from .orders import OrderBook
         from .stops import StopBook
 
         self.settings = settings
         self.portfolio = portfolio
         stop_book = StopBook(settings.data_dir / "stops.json")
+        order_book = OrderBook(settings.data_dir / "pending_orders.json")
         self.toolkit = Toolkit(
-            portfolio, broker, risk, journal, approve_fn, stop_book=stop_book
+            portfolio,
+            broker,
+            risk,
+            journal,
+            approve_fn,
+            stop_book=stop_book,
+            order_book=order_book,
         )
         self.engine = _build_engine(settings, self.toolkit, history_path)
 

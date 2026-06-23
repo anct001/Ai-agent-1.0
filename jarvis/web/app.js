@@ -219,6 +219,25 @@ async function loadPortfolio() {
   renderSectors(p.sector_allocation || {});
   renderRisk(p.risk_limits);
   renderStops(p.protective_orders || {});
+  renderPending(p.pending_orders || []);
+}
+
+function renderPending(orders) {
+  const el = $("#pending-list");
+  if (!el) return;
+  if (!orders.length) {
+    el.innerHTML = `<span class="empty">No resting orders. Ask the agent to "place a limit buy 10 NVDA at 120" or set an OCO bracket.</span>`;
+    return;
+  }
+  el.innerHTML = orders
+    .map((o) => {
+      const oco = o.oco_group ? " · OCO" : "";
+      return `<div class="model-row">
+        <div class="info"><div class="name">${o.side.toUpperCase()} ${o.qty} ${o.symbol}</div>
+        <div class="meta">${o.trigger} @ $${o.price.toLocaleString()}${oco} · id ${o.id}</div></div>
+      </div>`;
+    })
+    .join("");
 }
 
 function renderStops(orders) {
@@ -817,6 +836,60 @@ function renderStrategy(r) {
       },
     },
   });
+}
+
+/* ---------- optimize ---------- */
+$("#opt-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const status = $("#opt-status");
+  const btn = $("#opt-run");
+  btn.disabled = true;
+  status.textContent = "Grid-searching parameter combinations…";
+  status.classList.remove("hidden");
+  $("#opt-results").classList.add("hidden");
+  try {
+    const resp = await api("/api/optimize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        symbol: $("#opt-symbol").value.trim().toUpperCase(),
+        strategy: $("#opt-type").value,
+        period: $("#opt-period").value,
+        objective: $("#opt-objective").value,
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || resp.statusText);
+    }
+    renderOptimize(await resp.json());
+    status.classList.add("hidden");
+  } catch (err) {
+    status.textContent = `Optimization failed: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function renderOptimize(r) {
+  $("#opt-results").classList.remove("hidden");
+  const rows = r.leaderboard
+    .map(
+      (x, i) => `<tr ${i === 0 ? 'class="active-row"' : ""}>
+        <td>${i + 1}</td>
+        <td style="text-align:left">${JSON.stringify(x.params)}</td>
+        <td>${x.total_return_pct}%</td>
+        <td>${x.sharpe_ratio}</td>
+        <td>${x.max_drawdown_pct}%</td>
+        <td>${x.num_trades}</td>
+        <td>${x.win_rate_pct}%</td>
+      </tr>`
+    )
+    .join("");
+  $("#opt-table").innerHTML =
+    `<tr><th>#</th><th style="text-align:left">Params</th><th>Return</th><th>Sharpe</th><th>Max DD</th><th>Trades</th><th>Win%</th></tr>` +
+    rows +
+    `<tr><td colspan="7" class="meta-row">${r.combinations_tested} combinations tested · objective: ${r.objective}</td></tr>`;
 }
 
 /* ---------- boot ---------- */

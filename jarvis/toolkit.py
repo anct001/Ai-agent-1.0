@@ -220,6 +220,88 @@ _TOOL_DEFS = [
         {"type": "object", "properties": {}},
     ),
     (
+        "place_limit_order",
+        "Place a resting limit or stop order that fills only when price hits "
+        "the trigger (limit buy = buy the dip; limit sell = take profit; stop "
+        "buy = breakout entry; stop sell = breakdown exit). Buys are "
+        "re-validated against the risk manager at fill time. Use this to queue "
+        "an entry/exit at a target price instead of trading at market now.",
+        {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string"},
+                "side": {"type": "string", "enum": ["buy", "sell"]},
+                "trigger": {"type": "string", "enum": ["limit", "stop"]},
+                "price": {"type": "number", "description": "Trigger price"},
+                "qty": {"type": "number"},
+                "rationale": {"type": "string"},
+                "conviction": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low", "speculative"],
+                },
+            },
+            "required": ["symbol", "side", "trigger", "price", "qty", "rationale"],
+        },
+    ),
+    (
+        "place_oco_order",
+        "Bracket an existing long position with a one-cancels-other pair: a "
+        "take-profit limit-sell and a stop-loss stop-sell of the same size. "
+        "Whichever triggers first fills and cancels the other. Use this to set "
+        "a profit target and a hard stop in one step.",
+        {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string"},
+                "qty": {"type": "number"},
+                "take_profit_price": {"type": "number"},
+                "stop_loss_price": {"type": "number"},
+                "rationale": {"type": "string"},
+            },
+            "required": ["symbol", "qty", "take_profit_price", "stop_loss_price"],
+        },
+    ),
+    (
+        "get_pending_orders",
+        "List resting limit/stop/OCO orders waiting for a price trigger.",
+        {"type": "object", "properties": {}},
+    ),
+    (
+        "cancel_pending_order",
+        "Cancel a resting order by its id (from get_pending_orders).",
+        {
+            "type": "object",
+            "properties": {"order_id": {"type": "string"}},
+            "required": ["order_id"],
+        },
+    ),
+    (
+        "optimize_strategy",
+        "Grid-search a technical strategy's parameters over history and rank "
+        "them by Sharpe (or return/cagr), returning the best settings and a "
+        "leaderboard. Use this to tune a strategy before trusting it, instead "
+        "of guessing parameters.",
+        {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string"},
+                "strategy": {
+                    "type": "string",
+                    "enum": ["sma_cross", "rsi", "macd_cross", "bollinger"],
+                },
+                "period": {
+                    "type": "string",
+                    "enum": ["1y", "2y", "5y", "10y", "max"],
+                },
+                "objective": {
+                    "type": "string",
+                    "enum": ["sharpe", "return", "cagr"],
+                },
+            },
+            "required": ["symbol", "strategy"],
+        },
+    ),
+    (
         "record_thesis",
         "Persist an investment thesis to the journal. Call this whenever you "
         "form or materially revise a view on a name — before any related order.",
@@ -309,6 +391,7 @@ class Toolkit:
         journal: Journal,
         approve_fn: Callable[[dict], bool] | None = None,
         stop_book=None,
+        order_book=None,
     ):
         self.portfolio = portfolio
         self.broker = broker
@@ -316,6 +399,7 @@ class Toolkit:
         self.journal = journal
         self.approve_fn = approve_fn
         self.stop_book = stop_book
+        self.order_book = order_book
 
     def execute(self, name: str, args: dict):
         handler = getattr(self, f"_tool_{name}", None)
@@ -435,6 +519,57 @@ class Toolkit:
         if self.stop_book is None:
             return {}
         return self.stop_book.all()
+
+    def _tool_place_limit_order(self, args):
+        if self.order_book is None:
+            return {"error": "pending orders not available in this context"}
+        try:
+            return self.order_book.add(
+                args["symbol"],
+                args["side"],
+                args["trigger"],
+                float(args["price"]),
+                float(args["qty"]),
+                rationale=args.get("rationale", ""),
+                conviction=args.get("conviction", "medium"),
+            )
+        except ValueError as exc:
+            return {"error": str(exc)}
+
+    def _tool_place_oco_order(self, args):
+        if self.order_book is None:
+            return {"error": "pending orders not available in this context"}
+        symbol = args["symbol"].upper()
+        if symbol not in self.portfolio.positions:
+            return {"error": f"No open position in {symbol} to bracket"}
+        try:
+            return self.order_book.add_oco(
+                symbol,
+                float(args["qty"]),
+                float(args["take_profit_price"]),
+                float(args["stop_loss_price"]),
+                rationale=args.get("rationale", ""),
+            )
+        except ValueError as exc:
+            return {"error": str(exc)}
+
+    def _tool_get_pending_orders(self, args):
+        return self.order_book.all() if self.order_book else []
+
+    def _tool_cancel_pending_order(self, args):
+        if self.order_book is None:
+            return {"error": "pending orders not available in this context"}
+        return {"cancelled": self.order_book.cancel(args["order_id"])}
+
+    def _tool_optimize_strategy(self, args):
+        from .optimize import run_optimize
+
+        return run_optimize(
+            args["symbol"],
+            strategy=args.get("strategy", "sma_cross"),
+            period=args.get("period", "5y"),
+            objective=args.get("objective", "sharpe"),
+        )
 
     def _tool_record_thesis(self, args):
         return self.journal.record_thesis(

@@ -208,6 +208,10 @@ td.rationale { text-align: left; white-space: normal; min-width: 240px; color: v
 .pull-bar-track { height: 8px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
 .pull-bar { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
 
+/* ---------- optimize leaderboard ---------- */
+tr.active-row td { background: rgba(62,207,142,.08); }
+td.meta-row { text-align: center; color: var(--muted); font-size: 12px; }
+
 /* ---------- approval modal ---------- */
 .overlay {
   position: fixed; inset: 0; background: rgba(5,8,12,.75);

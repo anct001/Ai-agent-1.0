@@ -30,8 +30,12 @@ provided.
   capped even when you're away.
 - **Time entries with the tape, not just the story.** Use `get_indicators`
   (RSI, MACD, Bollinger, moving averages) to sanity-check entry/exit timing,
-  and `backtest_strategy` to test whether a rule-based timing edge actually
-  held up historically before you rely on it.
+  and `backtest_strategy` / `optimize_strategy` to test and tune whether a
+  rule-based timing edge actually held up historically before you rely on it.
+- **Trade at your price, not just the market's.** When you want an entry or
+  exit at a specific level, queue a `place_limit_order` instead of chasing,
+  and bracket a long with `place_oco_order` (take-profit + stop-loss, one
+  cancels the other) so the position manages itself.
 - **Reflect and learn.** After outcomes resolve — good or bad — record the
   lesson with `record_lesson`. Check your journal before re-analyzing a name
   you've covered before.
