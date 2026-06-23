@@ -10,6 +10,7 @@ let equityChart = null;
 let allocChart = null;
 let sectorChart = null;
 let btChart = null;
+const donutCharts = {}; // id -> Chart, for the generic breakdown donuts
 
 /* ---------- auth (Bearer token, only enforced when the server has one) ---------- */
 function authHeaders() {
@@ -49,8 +50,142 @@ document.querySelectorAll(".tab").forEach((btn) => {
     $(`#tab-${btn.dataset.tab}`).classList.add("active");
     if (btn.dataset.tab === "journal") loadJournal();
     if (btn.dataset.tab === "trades") loadTrades();
+    if (btn.dataset.tab === "models") loadModels();
   });
 });
+
+/* ---------- models ---------- */
+const CLOUD_MODELS = [
+  { name: "claude-opus-4-8", note: "Most capable; web search + adaptive thinking" },
+  { name: "claude-sonnet-4-6", note: "Faster and cheaper, very strong" },
+  { name: "claude-haiku-4-5", note: "Fastest, lowest cost" },
+];
+
+async function loadModels() {
+  let info;
+  try {
+    info = await apiJson("/api/models");
+  } catch {
+    return;
+  }
+  $("#active-model").innerHTML =
+    `<span class="prov">${info.provider === "ollama" ? "Local · Ollama" : "Cloud · Anthropic"}</span> — ${info.active_model}`;
+
+  const isActive = (prov, name) =>
+    info.provider === prov && info.active_model === name;
+
+  $("#cloud-models").innerHTML = CLOUD_MODELS.map(
+    (m) => modelRow(m.name, m.note, isActive("anthropic", m.name), "anthropic", m.name)
+  ).join("");
+
+  const status = $("#ollama-status");
+  if (info.ollama_available) {
+    status.textContent = "running";
+    status.className = "badge paper";
+  } else {
+    status.textContent = "offline";
+    status.className = "badge live";
+  }
+
+  $("#local-models").innerHTML = info.ollama_available
+    ? info.installed.length
+      ? info.installed
+          .map((m) =>
+            modelRow(
+              m.name,
+              `${m.size_gb ? m.size_gb + " GB" : ""} ${m.modified || ""}`.trim(),
+              isActive("ollama", m.name),
+              "ollama",
+              m.name
+            )
+          )
+          .join("")
+      : `<span class="empty">No local models installed — download one below.</span>`
+    : `<span class="empty">Ollama not detected at ${info.ollama_host}. Install from ollama.com and run <code>ollama serve</code>.</span>`;
+
+  const installedNames = new Set(info.installed.map((m) => m.name));
+  $("#suggested-models").innerHTML = info.suggested
+    .map((m) => {
+      const have = installedNames.has(m.name);
+      return `<div class="model-row">
+        <div class="info"><div class="name">${m.name}</div><div class="meta">${m.size} · ${m.note}</div></div>
+        ${have ? `<button class="btn-use" disabled>Installed</button>`
+               : `<button class="btn-pull" data-pull="${m.name}">Download</button>`}
+      </div>`;
+    })
+    .join("");
+
+  document.querySelectorAll("[data-use-prov]").forEach((b) =>
+    b.addEventListener("click", () => selectModel(b.dataset.useProv, b.dataset.useName))
+  );
+  document.querySelectorAll("[data-pull]").forEach((b) =>
+    b.addEventListener("click", () => pullModel(b.dataset.pull))
+  );
+}
+
+function modelRow(name, meta, active, prov, value) {
+  return `<div class="model-row ${active ? "active" : ""}">
+    <div class="info"><div class="name">${name}</div><div class="meta">${meta}</div></div>
+    <button class="btn-use" ${active ? "disabled" : ""} data-use-prov="${prov}" data-use-name="${value}">
+      ${active ? "✓ Active" : "Use"}
+    </button>
+  </div>`;
+}
+
+async function selectModel(provider, model) {
+  await api("/api/models/select", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider, model }),
+  });
+  loadModels();
+}
+
+function pullModel(name) {
+  const target = name || $("#pull-name").value.trim();
+  if (!target) return;
+  const box = $("#pull-progress");
+  const bar = $("#pull-bar");
+  const label = $("#pull-label");
+  box.classList.remove("hidden");
+  label.textContent = `Starting download of ${target}…`;
+  bar.style.width = "0%";
+
+  api("/api/models/pull", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: target }),
+  }).then(async (resp) => {
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf("\n\n")) >= 0) {
+        const chunk = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        if (!chunk.startsWith("data: ")) continue;
+        const ev = JSON.parse(chunk.slice(6));
+        if (ev.error) {
+          label.textContent = `Error: ${ev.error}`;
+          return;
+        }
+        if (ev.done) {
+          label.textContent = "Download complete.";
+          loadModels();
+          return;
+        }
+        if (ev.percent != null) bar.style.width = `${ev.percent}%`;
+        label.textContent = `${ev.status || "downloading"} ${ev.percent != null ? ev.percent + "%" : ""}`;
+      }
+    }
+  });
+}
+
+$("#pull-btn").addEventListener("click", () => pullModel(""));
 
 /* ---------- overview ---------- */
 async function loadPortfolio() {
@@ -83,7 +218,77 @@ async function loadPortfolio() {
   renderPositions(p.positions);
   renderAllocation(p);
   renderSectors(p.sector_allocation || {});
+  renderBreakdown("country-chart", "country-empty", p.country_allocation || {});
+  renderBreakdown("assetclass-chart", "assetclass-empty", p.asset_class_allocation || {});
   renderRisk(p.risk_limits);
+  renderStops(p.protective_orders || {});
+  renderPending(p.pending_orders || []);
+}
+
+function renderBreakdown(canvasId, emptyId, data) {
+  const entries = Object.entries(data);
+  const empty = $("#" + emptyId);
+  const ctx = $("#" + canvasId);
+  if (donutCharts[canvasId]) donutCharts[canvasId].destroy();
+  if (!entries.length) {
+    if (empty) empty.classList.remove("hidden");
+    return;
+  }
+  if (empty) empty.classList.add("hidden");
+  donutCharts[canvasId] = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: entries.map(([k]) => k),
+      datasets: [{ data: entries.map(([, v]) => v), backgroundColor: PALETTE, borderColor: "#141923", borderWidth: 2 }],
+    },
+    options: {
+      maintainAspectRatio: false,
+      cutout: "62%",
+      plugins: {
+        legend: { position: "right", labels: { color: "#8b97ab", boxWidth: 12 } },
+        tooltip: { callbacks: { label: (c) => ` ${c.label}: ${fmtUsd(c.parsed)}` } },
+      },
+    },
+  });
+}
+
+function renderPending(orders) {
+  const el = $("#pending-list");
+  if (!el) return;
+  if (!orders.length) {
+    el.innerHTML = `<span class="empty">No resting orders. Ask the agent to "place a limit buy 10 NVDA at 120" or set an OCO bracket.</span>`;
+    return;
+  }
+  el.innerHTML = orders
+    .map((o) => {
+      const oco = o.oco_group ? " · OCO" : "";
+      return `<div class="model-row">
+        <div class="info"><div class="name">${o.side.toUpperCase()} ${o.qty} ${o.symbol}</div>
+        <div class="meta">${o.trigger} @ $${o.price.toLocaleString()}${oco} · id ${o.id}</div></div>
+      </div>`;
+    })
+    .join("");
+}
+
+function renderStops(orders) {
+  const entries = Object.entries(orders);
+  const el = $("#stops-list");
+  if (!el) return;
+  if (!entries.length) {
+    el.innerHTML = `<span class="empty">No protective orders set. Ask the agent to "set an 8% stop-loss and 15% trailing stop on …".</span>`;
+    return;
+  }
+  el.innerHTML = entries
+    .map(([sym, o]) => {
+      const parts = [];
+      if (o.stop_loss_pct != null) parts.push(`stop-loss ${o.stop_loss_pct}%`);
+      if (o.trailing_stop_pct != null) parts.push(`trailing ${o.trailing_stop_pct}%`);
+      if (o.take_profit_pct != null) parts.push(`take-profit ${o.take_profit_pct}%`);
+      return `<div class="model-row">
+        <div class="info"><div class="name">${sym}</div><div class="meta">${parts.join(" · ")}</div></div>
+      </div>`;
+    })
+    .join("");
 }
 
 function renderSectors(sectors) {
@@ -584,6 +789,137 @@ function renderBacktest(r) {
       },
     },
   });
+}
+
+/* ---------- strategy backtest ---------- */
+$("#strat-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const status = $("#strat-status");
+  const btn = $("#strat-run");
+  const stop = parseFloat($("#strat-stop").value);
+  btn.disabled = true;
+  status.textContent = "Downloading history and simulating the strategy…";
+  status.classList.remove("hidden");
+  try {
+    const resp = await api("/api/strategy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        symbol: $("#strat-symbol").value.trim().toUpperCase(),
+        strategy: $("#strat-type").value,
+        period: $("#strat-period").value,
+        stop_loss_pct: isNaN(stop) ? null : stop,
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || resp.statusText);
+    }
+    renderStrategy(await resp.json());
+    status.classList.add("hidden");
+  } catch (err) {
+    status.textContent = `Strategy backtest failed: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function renderStrategy(r) {
+  $("#strat-results").classList.remove("hidden");
+  const s = r.strategy_performance;
+  const b = r.buy_hold_performance;
+  const kpis = [
+    { label: "Strategy return", value: `${s.total_return_pct}%`, delta: `buy & hold: ${b.total_return_pct}%`, valueClass: cls(s.total_return_pct) },
+    { label: "Strategy CAGR", value: `${s.cagr_pct}%`, delta: `buy & hold: ${b.cagr_pct}%`, valueClass: cls(s.cagr_pct) },
+    { label: "Sharpe", value: s.sharpe_ratio, delta: `buy & hold: ${b.sharpe_ratio}`, valueClass: cls(s.sharpe_ratio) },
+    { label: "Max drawdown", value: `${s.max_drawdown_pct}%`, delta: `buy & hold: ${b.max_drawdown_pct}%`, valueClass: "down" },
+    { label: "Trades", value: r.num_trades, delta: `win rate ${r.win_rate_pct}%` },
+  ];
+  $("#strat-metrics").innerHTML = kpis
+    .map(
+      (k) => `<div class="kpi">
+        <div class="label">${k.label}</div>
+        <div class="value ${k.valueClass || ""}">${k.value}</div>
+        ${k.delta ? `<div class="delta flat">${k.delta}</div>` : ""}
+      </div>`
+    )
+    .join("");
+
+  const ctx = $("#strat-chart");
+  if (window._stratChart) window._stratChart.destroy();
+  window._stratChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: r.curve.map((c) => c.date),
+      datasets: [
+        { label: `${r.strategy}`, data: r.curve.map((c) => c.strategy_idx), borderColor: "#3ecf8e", backgroundColor: "rgba(62,207,142,.12)", fill: true, tension: 0.25, pointRadius: 0 },
+        { label: "Buy & hold", data: r.curve.map((c) => c.buy_hold_idx), borderColor: "#8b97ab", borderDash: [6, 4], fill: false, tension: 0.25, pointRadius: 0 },
+      ],
+    },
+    options: {
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: { legend: { labels: { color: "#8b97ab" } } },
+      scales: {
+        x: { ticks: { color: "#8b97ab", maxTicksLimit: 10 }, grid: { color: "#1b2230" } },
+        y: { ticks: { color: "#8b97ab" }, grid: { color: "#1b2230" } },
+      },
+    },
+  });
+}
+
+/* ---------- optimize ---------- */
+$("#opt-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const status = $("#opt-status");
+  const btn = $("#opt-run");
+  btn.disabled = true;
+  status.textContent = "Grid-searching parameter combinations…";
+  status.classList.remove("hidden");
+  $("#opt-results").classList.add("hidden");
+  try {
+    const resp = await api("/api/optimize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        symbol: $("#opt-symbol").value.trim().toUpperCase(),
+        strategy: $("#opt-type").value,
+        period: $("#opt-period").value,
+        objective: $("#opt-objective").value,
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || resp.statusText);
+    }
+    renderOptimize(await resp.json());
+    status.classList.add("hidden");
+  } catch (err) {
+    status.textContent = `Optimization failed: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function renderOptimize(r) {
+  $("#opt-results").classList.remove("hidden");
+  const rows = r.leaderboard
+    .map(
+      (x, i) => `<tr ${i === 0 ? 'class="active-row"' : ""}>
+        <td>${i + 1}</td>
+        <td style="text-align:left">${JSON.stringify(x.params)}</td>
+        <td>${x.total_return_pct}%</td>
+        <td>${x.sharpe_ratio}</td>
+        <td>${x.max_drawdown_pct}%</td>
+        <td>${x.num_trades}</td>
+        <td>${x.win_rate_pct}%</td>
+      </tr>`
+    )
+    .join("");
+  $("#opt-table").innerHTML =
+    `<tr><th>#</th><th style="text-align:left">Params</th><th>Return</th><th>Sharpe</th><th>Max DD</th><th>Trades</th><th>Win%</th></tr>` +
+    rows +
+    `<tr><td colspan="7" class="meta-row">${r.combinations_tested} combinations tested · objective: ${r.objective}</td></tr>`;
 }
 
 /* ---------- boot ---------- */

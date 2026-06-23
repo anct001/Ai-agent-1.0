@@ -41,6 +41,11 @@ h1 { font-size: 18px; letter-spacing: 3px; }
 .badge.paper { color: var(--green); border-color: var(--green); }
 .badge.live { color: var(--red); border-color: var(--red); }
 .equity-ticker { font-variant-numeric: tabular-nums; font-weight: 600; }
+.view-switch a {
+  color: var(--muted); text-decoration: none; padding: 4px 10px; margin-left: 4px;
+  border: 1px solid var(--border); border-radius: 6px; font-size: 11px;
+}
+.view-switch a.active, .view-switch a:hover { color: var(--accent); border-color: var(--accent); }
 
 nav {
   display: flex; gap: 4px; padding: 10px 24px 0;
@@ -182,6 +187,35 @@ td.rationale { text-align: left; white-space: normal; min-width: 240px; color: v
   width: 100%; background: var(--panel-2); border: 1px solid var(--border);
   border-radius: 10px; color: var(--text); padding: 12px 14px; font-size: 14px;
 }
+
+/* ---------- models ---------- */
+.active-model { font-size: 16px; font-weight: 600; }
+.active-model .prov { color: var(--accent); }
+.sep { border: none; border-top: 1px solid var(--border); margin: 16px 0 0; }
+.model-row {
+  display: flex; justify-content: space-between; align-items: center;
+  background: var(--panel-2); border: 1px solid var(--border);
+  border-radius: 10px; padding: 10px 14px;
+}
+.model-row .info .name { font-weight: 600; }
+.model-row .info .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.model-row.active { border-color: var(--green); }
+.btn-use {
+  background: var(--accent); color: #0a0f16; border: none; border-radius: 8px;
+  padding: 7px 14px; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.btn-use:disabled { background: var(--panel); color: var(--muted); cursor: default; }
+.btn-pull {
+  background: none; border: 1px solid var(--accent); color: var(--accent);
+  border-radius: 8px; padding: 7px 14px; font-size: 12px; cursor: pointer;
+}
+.pull-progress { margin-top: 12px; }
+.pull-bar-track { height: 8px; background: var(--panel-2); border-radius: 99px; overflow: hidden; }
+.pull-bar { height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+
+/* ---------- optimize leaderboard ---------- */
+tr.active-row td { background: rgba(62,207,142,.08); }
+td.meta-row { text-align: center; color: var(--muted); font-size: 12px; }
 
 /* ---------- approval modal ---------- */
 .overlay {

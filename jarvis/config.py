@@ -37,6 +37,18 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_json(name: str, default):
+    raw = os.getenv(name)
+    if not raw:
+        return default
+    import json
+
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return default
+
+
 @dataclass
 class RiskLimits:
     max_order_pct: float = _env_float("RISK_MAX_ORDER_PCT", 0.10)
@@ -47,9 +59,15 @@ class RiskLimits:
 
 @dataclass
 class Settings:
+    # LLM backend: "anthropic" (Claude API) or "ollama" (local model).
+    llm_provider: str = os.getenv("LLM_PROVIDER", "anthropic").lower()
     model: str = os.getenv("JARVIS_MODEL", "claude-opus-4-8")
     effort: str = os.getenv("JARVIS_EFFORT", "high")
     max_tokens: int = _env_int("JARVIS_MAX_TOKENS", 64000)
+
+    # Local model (Ollama) settings.
+    ollama_host: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    ollama_model: str = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 
     execution_mode: str = os.getenv("EXECUTION_MODE", "paper").lower()
     paper_starting_cash: float = _env_float("PAPER_STARTING_CASH", 100_000.0)
@@ -60,11 +78,23 @@ class Settings:
     )
     risk: RiskLimits = field(default_factory=RiskLimits)
 
+    # Time-based ROI table (Freqtrade-style): {held_days: min_profit_fraction}.
+    # Empty = disabled. Example: {"0":0.1,"5":0.05,"20":0.02,"60":0}
+    roi_table: dict = field(default_factory=lambda: _env_json("ROI_TABLE", {}))
+
     alpaca_api_key: str = os.getenv("ALPACA_API_KEY", "")
     alpaca_secret_key: str = os.getenv("ALPACA_SECRET_KEY", "")
     alpaca_base_url: str = os.getenv(
         "ALPACA_BASE_URL", "https://paper-api.alpaca.markets"
     )
+
+    # Crypto exchange (CCXT) — used when EXECUTION_MODE=crypto.
+    ccxt_exchange: str = os.getenv("CCXT_EXCHANGE", "binance")
+    ccxt_api_key: str = os.getenv("CCXT_API_KEY", "")
+    ccxt_secret: str = os.getenv("CCXT_SECRET", "")
+    ccxt_password: str = os.getenv("CCXT_PASSWORD", "")
+    ccxt_quote: str = os.getenv("CCXT_QUOTE", "USDT")
+    ccxt_sandbox: bool = _env_bool("CCXT_SANDBOX", True)
 
     # Dashboard auth: when set, every /api request must send
     # "Authorization: Bearer <token>".
@@ -85,12 +115,67 @@ class Settings:
     smtp_password: str = os.getenv("SMTP_PASSWORD", "")
     alert_email_to: str = os.getenv("ALERT_EMAIL_TO", "")
 
+    # Telegram bot (interactive control + alert push)
+    telegram_bot_token: str = os.getenv("TELEGRAM_BOT_TOKEN", "")
+    telegram_chat_id: str = os.getenv("TELEGRAM_CHAT_ID", "")
+
     def __post_init__(self) -> None:
-        if self.execution_mode not in ("paper", "live"):
+        if self.execution_mode not in ("paper", "live", "crypto"):
             raise ValueError(
-                f"EXECUTION_MODE must be 'paper' or 'live', got {self.execution_mode!r}"
+                "EXECUTION_MODE must be 'paper', 'live', or 'crypto', "
+                f"got {self.execution_mode!r}"
             )
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        self._apply_saved_llm_selection()
+
+    # ---------- runtime-selectable LLM ----------
+
+    @property
+    def _selection_path(self) -> Path:
+        return self.data_dir / "llm_selection.json"
+
+    def _apply_saved_llm_selection(self) -> None:
+        """A selection made in the dashboard/CLI persists here and overrides
+        env on the next start."""
+        import json
+
+        if not self._selection_path.exists():
+            return
+        try:
+            sel = json.loads(self._selection_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            return
+        if sel.get("provider"):
+            self.llm_provider = sel["provider"]
+        if sel.get("anthropic_model"):
+            self.model = sel["anthropic_model"]
+        if sel.get("ollama_model"):
+            self.ollama_model = sel["ollama_model"]
+
+    def select_llm(self, provider: str, model: str) -> None:
+        """Switch the active backend at runtime and persist the choice."""
+        import json
+
+        provider = provider.lower()
+        if provider not in ("anthropic", "ollama"):
+            raise ValueError("provider must be 'anthropic' or 'ollama'")
+        self.llm_provider = provider
+        if provider == "ollama":
+            self.ollama_model = model
+        else:
+            self.model = model
+        self._selection_path.write_text(
+            json.dumps(
+                {
+                    "provider": self.llm_provider,
+                    "anthropic_model": self.model,
+                    "ollama_model": self.ollama_model,
+                }
+            )
+        )
+
+    def active_model(self) -> str:
+        return self.ollama_model if self.llm_provider == "ollama" else self.model
 
 
 settings = Settings()

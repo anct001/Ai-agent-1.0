@@ -129,6 +129,19 @@ class AlertManager:
                 )
             except Exception:
                 pass  # alerting must never crash the agent
+        if self.settings.telegram_bot_token and self.settings.telegram_chat_id:
+            try:
+                requests = __import__("requests")
+                requests.post(
+                    f"https://api.telegram.org/bot{self.settings.telegram_bot_token}/sendMessage",
+                    json={
+                        "chat_id": self.settings.telegram_chat_id,
+                        "text": f"⚠️ JARVIS alerts:\n{body}",
+                    },
+                    timeout=10,
+                )
+            except Exception:
+                pass
         if self.settings.smtp_host and self.settings.alert_email_to:
             try:
                 msg = EmailMessage()

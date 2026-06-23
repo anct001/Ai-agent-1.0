@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JARVIS — AI</title>
+  <link rel="stylesheet" href="/static/glass.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <div class="aurora"></div>
+  <div class="aurora a2"></div>
+  <div class="aurora a3"></div>
+
+  <header class="glass">
+    <div class="brand">
+      <span class="orb"></span>
+      <div>
+        <h1>JARVIS</h1>
+        <span class="sub">AI Investment Agent</span>
+      </div>
+    </div>
+    <div class="hright">
+      <span id="equity-pill" class="pill">—</span>
+      <nav class="switch">
+        <a href="/">Classic</a>
+        <a href="/quant">Quant</a>
+        <a href="/glass" class="active">Glass</a>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <section class="kpis" id="kpis"></section>
+
+    <div class="grid">
+      <div class="glass card span2">
+        <h2>Equity vs S&amp;P 500</h2>
+        <div class="chart"><canvas id="equity-chart"></canvas></div>
+      </div>
+      <div class="glass card">
+        <h2>Allocation</h2>
+        <div class="chart"><canvas id="alloc-chart"></canvas></div>
+      </div>
+    </div>
+
+    <div class="glass card">
+      <h2>Macro Regime</h2>
+      <div id="macro" class="macro"></div>
+    </div>
+
+    <div class="glass card chat-card">
+      <h2>Ask JARVIS</h2>
+      <div id="chat" class="chat"></div>
+      <form id="chat-form" class="chat-input">
+        <input id="chat-text" type="text" placeholder="Ask about the market, a ticker, the portfolio…" autocomplete="off" />
+        <button id="chat-send" type="submit">➤</button>
+      </form>
+    </div>
+  </main>
+
+  <script src="/static/common.js"></script>
+  <script src="/static/glass.js"></script>
+</body>
+</html>

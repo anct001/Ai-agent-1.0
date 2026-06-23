@@ -17,6 +17,11 @@
     <div class="header-right">
       <span id="mode-badge" class="badge">…</span>
       <span id="equity-ticker" class="equity-ticker"></span>
+      <nav class="view-switch">
+        <a href="/" class="active">Classic</a>
+        <a href="/quant">Quant</a>
+        <a href="/glass">Glass</a>
+      </nav>
     </div>
   </header>
 
@@ -24,6 +29,7 @@
     <button class="tab active" data-tab="overview">Overview</button>
     <button class="tab" data-tab="chat">Chat</button>
     <button class="tab" data-tab="backtest">Backtest</button>
+    <button class="tab" data-tab="models">Models</button>
     <button class="tab" data-tab="journal">Journal</button>
     <button class="tab" data-tab="trades">Trades</button>
   </nav>
@@ -55,6 +61,30 @@
       <div class="card">
         <h2>Recent Alerts</h2>
         <div id="alerts-list" class="stack"><span class="empty">No alerts.</span></div>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card">
+        <h2>Geography <span class="hint">(by country of domicile)</span></h2>
+        <div class="chart-box donut small"><canvas id="country-chart"></canvas></div>
+        <p id="country-empty" class="empty hidden">Geography appears once you hold positions.</p>
+      </div>
+      <div class="card">
+        <h2>Asset Class</h2>
+        <div class="chart-box donut small"><canvas id="assetclass-chart"></canvas></div>
+        <p id="assetclass-empty" class="empty hidden">Asset classes appear once you hold positions.</p>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card">
+        <h2>Protective Orders <span class="hint">(auto-exit · set via chat)</span></h2>
+        <div id="stops-list" class="stack"><span class="empty">No protective orders set.</span></div>
+      </div>
+      <div class="card">
+        <h2>Pending Orders <span class="hint">(limit / stop / OCO · set via chat)</span></h2>
+        <div id="pending-list" class="stack"><span class="empty">No resting orders.</span></div>
       </div>
     </section>
 
@@ -122,6 +152,94 @@
       <div class="card">
         <h2>Backtest Curve <span class="hint">(indexed to 100)</span></h2>
         <div class="chart-box"><canvas id="bt-chart"></canvas></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Strategy Backtest <span class="hint">(rule-based timing on one ticker, vs buy &amp; hold)</span></h2>
+      <form id="strat-form" class="bt-form">
+        <input id="strat-symbol" type="text" placeholder="Ticker, e.g. NVDA" required />
+        <select id="strat-type">
+          <option value="sma_cross">SMA crossover</option>
+          <option value="rsi">RSI mean-reversion</option>
+          <option value="macd_cross">MACD crossover</option>
+          <option value="bollinger">Bollinger breakout</option>
+        </select>
+        <select id="strat-period">
+          <option value="2y">2 years</option>
+          <option value="5y" selected>5 years</option>
+          <option value="10y">10 years</option>
+          <option value="max">Max</option>
+        </select>
+        <input id="strat-stop" type="number" placeholder="Stop-loss %" step="0.5" size="8" title="Optional stop-loss %" />
+        <button type="submit" id="strat-run">Run</button>
+      </form>
+      <p id="strat-status" class="empty hidden"></p>
+      <section id="strat-results" class="hidden">
+        <section class="kpi-row" id="strat-metrics"></section>
+        <div class="chart-box"><canvas id="strat-chart"></canvas></div>
+      </section>
+    </section>
+
+    <section class="card">
+      <h2>Optimize Parameters <span class="hint">(grid-search a strategy, ranked by objective)</span></h2>
+      <form id="opt-form" class="bt-form">
+        <input id="opt-symbol" type="text" placeholder="Ticker, e.g. NVDA" required />
+        <select id="opt-type">
+          <option value="sma_cross">SMA crossover</option>
+          <option value="rsi">RSI mean-reversion</option>
+          <option value="macd_cross">MACD crossover</option>
+          <option value="bollinger">Bollinger breakout</option>
+        </select>
+        <select id="opt-period">
+          <option value="2y">2 years</option>
+          <option value="5y" selected>5 years</option>
+          <option value="10y">10 years</option>
+          <option value="max">Max</option>
+        </select>
+        <select id="opt-objective">
+          <option value="sharpe">Max Sharpe</option>
+          <option value="return">Max return</option>
+          <option value="cagr">Max CAGR</option>
+        </select>
+        <button type="submit" id="opt-run">Optimize</button>
+      </form>
+      <p id="opt-status" class="empty hidden"></p>
+      <div id="opt-results" class="table-wrap hidden"><table id="opt-table"></table></div>
+    </section>
+  </main>
+
+  <!-- ===== Models ===== -->
+  <main id="tab-models" class="tab-panel">
+    <section class="card">
+      <h2>Active AI Backend</h2>
+      <div id="active-model" class="active-model">Loading…</div>
+      <p class="hint" style="margin-top:10px">
+        Cloud (Claude) is most capable and includes live web search. Local
+        models run fully on your machine via <strong>Ollama</strong> — private
+        and free, but no web search.
+      </p>
+    </section>
+
+    <section class="grid-2">
+      <div class="card">
+        <h2>Cloud — Anthropic Claude</h2>
+        <div id="cloud-models" class="stack"></div>
+      </div>
+      <div class="card">
+        <h2>Local — Ollama <span id="ollama-status" class="badge">…</span></h2>
+        <div id="local-models" class="stack"></div>
+        <hr class="sep" />
+        <h2 style="margin-top:14px">Download a model</h2>
+        <div id="suggested-models" class="stack"></div>
+        <div class="bt-form" style="margin-top:12px">
+          <input id="pull-name" type="text" placeholder="or type a name, e.g. qwen2.5:14b" />
+          <button id="pull-btn">Download</button>
+        </div>
+        <div id="pull-progress" class="pull-progress hidden">
+          <div class="pull-bar-track"><div id="pull-bar" class="pull-bar"></div></div>
+          <span id="pull-label" class="hint"></span>
+        </div>
       </div>
     </section>
   </main>

@@ -5,3 +5,7 @@ requests>=2.31.0
 python-dotenv>=1.0.0
 fastapi>=0.110.0
 uvicorn>=0.29.0
+
+# Optional: crypto/multi-exchange execution (EXECUTION_MODE=crypto).
+# Install separately if you need it:  pip install ccxt
+# ccxt>=4.2.0

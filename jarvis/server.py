@@ -97,42 +97,100 @@ class AppState:
         self.chat_lock = threading.Lock()  # one agent turn at a time
         self._macro_cache: tuple[float, dict] | None = None
         self._agent = None
+        self._broker = None
 
     @property
-    def agent(self):
-        if self._agent is None:
-            from .agent import InvestmentAgent
-            from .brokers.paper import PaperBroker
-
+    def broker(self):
+        if self._broker is None:
             if settings.execution_mode == "live":
                 from .brokers.alpaca import AlpacaBroker
 
-                broker = AlpacaBroker(
+                self._broker = AlpacaBroker(
                     settings.alpaca_api_key,
                     settings.alpaca_secret_key,
                     settings.alpaca_base_url,
                     self.portfolio,
                     self.market_data.last_price,
                 )
+            elif settings.execution_mode == "crypto":
+                from .brokers.ccxt_broker import CCXTBroker
+
+                self._broker = CCXTBroker(
+                    settings.ccxt_exchange,
+                    settings.ccxt_api_key,
+                    settings.ccxt_secret,
+                    self.portfolio,
+                    sandbox=settings.ccxt_sandbox,
+                    password=settings.ccxt_password,
+                    quote=settings.ccxt_quote,
+                )
             else:
-                broker = PaperBroker(
+                from .brokers.paper import PaperBroker
+
+                self._broker = PaperBroker(
                     self.portfolio,
                     self.market_data.last_price,
                     slippage_bps=settings.fill_slippage_bps,
                     commission=settings.commission_per_order,
                 )
+        return self._broker
+
+    @property
+    def agent(self):
+        if self._agent is None:
+            from .agent import InvestmentAgent
 
             approve_fn = None if settings.auto_approve else self.approvals.approve_fn
             self._agent = InvestmentAgent(
                 settings,
                 self.portfolio,
-                broker,
+                self.broker,
                 self.risk,
                 self.journal,
                 approve_fn,
                 history_path=settings.data_dir / "chat_history.json",
             )
         return self._agent
+
+    def run_protective_stops(self) -> list[dict]:
+        from .stops import StopBook, StopEngine
+
+        book = StopBook(settings.data_dir / "stops.json")
+        if not book.all() and not settings.roi_table:
+            return []
+        engine = StopEngine(
+            book,
+            self.portfolio,
+            self.broker,
+            self.market_data.last_price,
+            roi_table=settings.roi_table,
+        )
+        return engine.run()
+
+    def run_pending_orders(self) -> list[dict]:
+        from .orders import OrderBook, OrderEngine
+
+        book = OrderBook(settings.data_dir / "pending_orders.json")
+        if not book.all():
+            return []
+        engine = OrderEngine(
+            book, self.portfolio, self.broker, self.risk, self.market_data.last_price
+        )
+        return engine.run()
+
+    def stop_orders(self) -> dict:
+        from .stops import StopBook
+
+        return StopBook(settings.data_dir / "stops.json").all()
+
+    def pending_orders(self) -> list[dict]:
+        from .orders import OrderBook
+
+        return OrderBook(settings.data_dir / "pending_orders.json").all()
+
+    def rebuild_agent(self) -> None:
+        """Drop the cached agent so the next turn picks up a backend change."""
+        self._agent = None
 
     def macro(self) -> dict:
         now = time.time()
@@ -156,6 +214,12 @@ class AppState:
             snap["sector_allocation"][pos["sector"]] = round(
                 snap["sector_allocation"].get(pos["sector"], 0.0) + pos["value"], 2
             )
+        snap["protective_orders"] = self.stop_orders()
+        snap["pending_orders"] = self.pending_orders()
+        snap["country_allocation"] = self.market_data.country_allocation(snap["positions"])
+        snap["asset_class_allocation"] = self.market_data.asset_class_allocation(
+            snap["positions"]
+        )
         return snap
 
 
@@ -221,11 +285,135 @@ def api_journal(request: Request):
 @api.get("/alerts")
 def api_alerts(request: Request):
     _require_auth(request)
+    # Pending limit/OCO orders and protective stops both run on this poll so
+    # triggers fire even when nobody is chatting; surface them as alerts.
+    stop_alerts = []
+    try:
+        for ev in state.run_pending_orders():
+            if ev["status"] != "filled":
+                continue
+            stop_alerts.append(
+                {
+                    "severity": "info",
+                    "title": f"{ev['side'].upper()} {ev['symbol']} — {ev['trigger']} order filled",
+                    "detail": f"{ev['qty']} {ev['symbol']} @ ${ev['fill_price']:,.2f}.",
+                }
+            )
+    except Exception:
+        pass
+    try:
+        for ex in state.run_protective_stops():
+            if "error" in ex:
+                continue
+            stop_alerts.append(
+                {
+                    "severity": "critical",
+                    "title": f"Auto-sold {ex['symbol']} — {ex['reason']}",
+                    "detail": f"Exited {ex['qty']} {ex['symbol']} @ ${ex['exit_price']:,.2f}.",
+                }
+            )
+    except Exception:
+        pass
     try:
         snap = state.snapshot()
     except Exception:
-        return []
-    return state.alerts.process(snap, state.history.read())
+        return stop_alerts
+    return stop_alerts + state.alerts.process(snap, state.history.read())
+
+
+@api.get("/quant")
+def api_quant(request: Request, correlation: bool = True, period: str = "1y"):
+    _require_auth(request)
+    from .tools import quant
+
+    snap = state.snapshot()
+    history = [h["equity"] for h in state.history.read()]
+    out = {
+        "risk": quant.risk_metrics(history),
+        "concentration": quant.concentration(snap["positions"]),
+        "equity": snap["equity"],
+        "cash": snap["cash"],
+        "positions": snap["positions"],
+        "sector_allocation": snap.get("sector_allocation", {}),
+        "country_allocation": snap.get("country_allocation", {}),
+        "asset_class_allocation": snap.get("asset_class_allocation", {}),
+        "correlation": {"symbols": [], "matrix": []},
+    }
+    symbols = [p["symbol"] for p in snap["positions"]]
+    if correlation and len(symbols) >= 2:
+        try:
+            out["correlation"] = quant.correlation_for(symbols, period)
+        except Exception as exc:
+            out["correlation"] = {"symbols": symbols, "matrix": [], "error": str(exc)}
+    return out
+
+
+@api.get("/protective-orders")
+def api_protective_orders(request: Request):
+    _require_auth(request)
+    return state.stop_orders()
+
+
+@api.get("/pending-orders")
+def api_pending_orders(request: Request):
+    _require_auth(request)
+    return state.pending_orders()
+
+
+class OptimizeRequest(BaseModel):
+    symbol: str
+    strategy: str = "sma_cross"
+    period: str = "5y"
+    objective: str = "sharpe"
+    method: str = "grid"
+
+
+@api.post("/optimize")
+def api_optimize(req: OptimizeRequest, request: Request):
+    _require_auth(request)
+    from .optimize import run_optimize
+
+    try:
+        return run_optimize(
+            req.symbol,
+            strategy=req.strategy,
+            period=req.period,
+            objective=req.objective,
+            method=req.method,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@api.get("/indicators")
+def api_indicators(request: Request, symbol: str, period: str = "1y"):
+    _require_auth(request)
+    from .tools import indicators
+
+    return indicators.get_indicators(symbol, period)
+
+
+class StrategyRequest(BaseModel):
+    symbol: str
+    strategy: str = "sma_cross"
+    period: str = "5y"
+    stop_loss_pct: float | None = None
+
+
+@api.post("/strategy")
+def api_strategy(req: StrategyRequest, request: Request):
+    _require_auth(request)
+    from .strategy import run_strategy
+
+    try:
+        return run_strategy(
+            req.symbol,
+            strategy=req.strategy,
+            period=req.period,
+            stop_loss_pct=req.stop_loss_pct,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 class BacktestRequest(BaseModel):
@@ -314,6 +502,67 @@ def api_chat(req: ChatRequest, request: Request):
     )
 
 
+@api.get("/models")
+def api_models(request: Request):
+    _require_auth(request)
+    from .llm.ollama import SUGGESTED_MODELS, OllamaClient
+
+    client = OllamaClient(settings.ollama_host)
+    available = client.is_available()
+    return {
+        "provider": settings.llm_provider,
+        "active_model": settings.active_model(),
+        "anthropic_model": settings.model,
+        "ollama_available": available,
+        "ollama_host": settings.ollama_host,
+        "installed": client.list_models() if available else [],
+        "suggested": SUGGESTED_MODELS,
+    }
+
+
+class SelectModelRequest(BaseModel):
+    provider: str
+    model: str
+
+
+@api.post("/models/select")
+def api_models_select(req: SelectModelRequest, request: Request):
+    _require_auth(request)
+    try:
+        settings.select_llm(req.provider, req.model)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    state.rebuild_agent()  # next chat turn uses the new backend
+    return {"provider": settings.llm_provider, "active_model": settings.active_model()}
+
+
+class PullModelRequest(BaseModel):
+    name: str
+
+
+@api.post("/models/pull")
+def api_models_pull(req: PullModelRequest, request: Request):
+    _require_auth(request)
+    from .llm.ollama import OllamaClient, OllamaError
+
+    client = OllamaClient(settings.ollama_host)
+
+    def stream():
+        try:
+            for event in client.pull(req.name):
+                yield f"data: {json.dumps(event)}\n\n"
+            yield f'data: {json.dumps({"status": "success", "percent": 100})}\n\n'
+        except OllamaError as exc:
+            yield f'data: {json.dumps({"error": str(exc)})}\n\n'
+        yield f'data: {json.dumps({"done": True})}\n\n'
+
+    return StreamingResponse(
+        stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 class ApprovalDecision(BaseModel):
     approve: bool
 
@@ -333,6 +582,16 @@ app.include_router(api)
 @app.get("/")
 def index():
     return FileResponse(WEB_DIR / "index.html")
+
+
+@app.get("/quant")
+def quant_dashboard():
+    return FileResponse(WEB_DIR / "quant.html")
+
+
+@app.get("/glass")
+def glass_dashboard():
+    return FileResponse(WEB_DIR / "glass.html")
 
 
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
