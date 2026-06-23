@@ -41,6 +41,11 @@ h1 { font-size: 18px; letter-spacing: 3px; }
 .badge.paper { color: var(--green); border-color: var(--green); }
 .badge.live { color: var(--red); border-color: var(--red); }
 .equity-ticker { font-variant-numeric: tabular-nums; font-weight: 600; }
+.view-switch a {
+  color: var(--muted); text-decoration: none; padding: 4px 10px; margin-left: 4px;
+  border: 1px solid var(--border); border-radius: 6px; font-size: 11px;
+}
+.view-switch a.active, .view-switch a:hover { color: var(--accent); border-color: var(--accent); }
 
 nav {
   display: flex; gap: 4px; padding: 10px 24px 0;

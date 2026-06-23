@@ -321,6 +321,33 @@ def api_alerts(request: Request):
     return stop_alerts + state.alerts.process(snap, state.history.read())
 
 
+@api.get("/quant")
+def api_quant(request: Request, correlation: bool = True, period: str = "1y"):
+    _require_auth(request)
+    from .tools import quant
+
+    snap = state.snapshot()
+    history = [h["equity"] for h in state.history.read()]
+    out = {
+        "risk": quant.risk_metrics(history),
+        "concentration": quant.concentration(snap["positions"]),
+        "equity": snap["equity"],
+        "cash": snap["cash"],
+        "positions": snap["positions"],
+        "sector_allocation": snap.get("sector_allocation", {}),
+        "country_allocation": snap.get("country_allocation", {}),
+        "asset_class_allocation": snap.get("asset_class_allocation", {}),
+        "correlation": {"symbols": [], "matrix": []},
+    }
+    symbols = [p["symbol"] for p in snap["positions"]]
+    if correlation and len(symbols) >= 2:
+        try:
+            out["correlation"] = quant.correlation_for(symbols, period)
+        except Exception as exc:
+            out["correlation"] = {"symbols": symbols, "matrix": [], "error": str(exc)}
+    return out
+
+
 @api.get("/protective-orders")
 def api_protective_orders(request: Request):
     _require_auth(request)
@@ -555,6 +582,16 @@ app.include_router(api)
 @app.get("/")
 def index():
     return FileResponse(WEB_DIR / "index.html")
+
+
+@app.get("/quant")
+def quant_dashboard():
+    return FileResponse(WEB_DIR / "quant.html")
+
+
+@app.get("/glass")
+def glass_dashboard():
+    return FileResponse(WEB_DIR / "glass.html")
 
 
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")

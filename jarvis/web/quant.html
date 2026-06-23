@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JARVIS — Quant Research</title>
+  <link rel="stylesheet" href="/static/quant.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <span class="logo">▚</span>
+      <h1>QUANT RESEARCH</h1>
+      <span class="sub" id="asof">—</span>
+    </div>
+    <nav class="switch">
+      <a href="/">Classic</a>
+      <a href="/quant" class="active">Quant</a>
+      <a href="/glass">Glass</a>
+    </nav>
+  </header>
+
+  <div class="terminal">
+    <section class="metrics" id="metrics"></section>
+
+    <div class="row">
+      <section class="panel wide">
+        <div class="phead">CORRELATION MATRIX <span id="corr-note"></span></div>
+        <div id="corr" class="corr-wrap"><span class="muted">Loading…</span></div>
+      </section>
+      <section class="panel">
+        <div class="phead">CONCENTRATION</div>
+        <div id="concentration" class="kv"></div>
+      </section>
+    </div>
+
+    <div class="row">
+      <section class="panel">
+        <div class="phead">DRAWDOWN (UNDERWATER)</div>
+        <div class="chart"><canvas id="dd-chart"></canvas></div>
+      </section>
+      <section class="panel">
+        <div class="phead">DAILY RETURN DISTRIBUTION</div>
+        <div class="chart"><canvas id="dist-chart"></canvas></div>
+      </section>
+    </div>
+
+    <div class="row">
+      <section class="panel" id="exp-sector"><div class="phead">SECTOR EXPOSURE</div><div class="bars"></div></section>
+      <section class="panel" id="exp-country"><div class="phead">GEOGRAPHY</div><div class="bars"></div></section>
+      <section class="panel" id="exp-asset"><div class="phead">ASSET CLASS</div><div class="bars"></div></section>
+    </div>
+
+    <section class="panel wide">
+      <div class="phead">HOLDINGS</div>
+      <div class="table-wrap"><table id="holdings"></table></div>
+    </section>
+  </div>
+
+  <script src="/static/common.js"></script>
+  <script src="/static/quant.js"></script>
+</body>
+</html>

@@ -209,6 +209,25 @@ State persists in the `jarvis-data` volume.
 The equity curve builds up day over day: each dashboard load snapshots
 total equity alongside the S&P 500 close into `data/equity_history.json`.
 
+### Three dashboard skins
+
+A view switcher in the header flips between three presentations of the same
+live data (pick by taste — they share the API and your token):
+
+- **Classic** (`/`) — the full control surface: chat, charts, backtest,
+  optimize, models, journal, trades, approvals.
+- **Quant Research** (`/quant`) — a dense Bloomberg-style terminal:
+  risk-metric strip (ann. return/vol, Sharpe, Sortino, max DD, VaR/CVaR),
+  a **correlation heatmap** of your holdings, concentration stats (HHI,
+  effective N), an **underwater drawdown** chart, a **daily-return
+  histogram**, and ranked sector/geography/asset-class exposure bars.
+- **Glassmorphism AI** (`/glass`) — a frosted-glass UI with an animated
+  aurora background: glowing KPI tiles, equity-vs-S&P curve, allocation
+  donut, macro tiles, and a built-in streaming **AI chat** panel.
+
+The Quant view is backed by a new `GET /api/quant` endpoint (correlation,
+risk, concentration); the Glass view reuses the existing endpoints.
+
 > **Auth:** set `JARVIS_DASHBOARD_TOKEN` and every API request must carry
 > `Authorization: Bearer <token>` — the UI prompts for it once and stores it
 > locally. The token is **required** before exposing the dashboard beyond
@@ -243,11 +262,12 @@ The regime is cautiously risk-on: the 10Y/3M curve has re-steepened to ...
 | `jarvis/strategy.py` | Signal-level strategy backtester (sma_cross/rsi/macd/bollinger) with fees + stop-loss |
 | `jarvis/stops.py` | Protective orders (stop-loss/trailing/take-profit) + auto-exit engine |
 | `jarvis/orders.py` | Resting limit/stop/OCO orders + trigger-fill engine (risk-revalidated) |
-| `jarvis/optimize.py` | Strategy parameter grid-search (Hyperopt-lite), ranked by objective |
+| `jarvis/optimize.py` | Strategy parameter grid/random search (Hyperopt-lite), ranked by objective |
+| `jarvis/tools/quant.py` | Quant analytics: correlation matrix, risk metrics, concentration (HHI) |
 | `jarvis/toolkit.py` | Shared tool implementations + dual schema formats (Anthropic & OpenAI/Ollama) |
 | `jarvis/llm/ollama.py` | Local-model client: health, list, pull (streamed progress), chat |
 | `jarvis/server.py` | FastAPI backend: REST + SSE chat/pull streaming + browser order-approval hub + Bearer-token auth |
-| `jarvis/web/` | Dashboard SPA (vanilla JS + Chart.js, no build step) |
+| `jarvis/web/` | Three dashboards (Classic SPA, Quant terminal, Glassmorphism AI) — vanilla JS + Chart.js, no build step |
 | `jarvis/cli.py` | CLI, interactive order approval, autonomous scheduler, backtest, dashboard launcher |
 
 Design choices worth knowing:
