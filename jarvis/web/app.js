@@ -218,6 +218,28 @@ async function loadPortfolio() {
   renderAllocation(p);
   renderSectors(p.sector_allocation || {});
   renderRisk(p.risk_limits);
+  renderStops(p.protective_orders || {});
+}
+
+function renderStops(orders) {
+  const entries = Object.entries(orders);
+  const el = $("#stops-list");
+  if (!el) return;
+  if (!entries.length) {
+    el.innerHTML = `<span class="empty">No protective orders set. Ask the agent to "set an 8% stop-loss and 15% trailing stop on …".</span>`;
+    return;
+  }
+  el.innerHTML = entries
+    .map(([sym, o]) => {
+      const parts = [];
+      if (o.stop_loss_pct != null) parts.push(`stop-loss ${o.stop_loss_pct}%`);
+      if (o.trailing_stop_pct != null) parts.push(`trailing ${o.trailing_stop_pct}%`);
+      if (o.take_profit_pct != null) parts.push(`take-profit ${o.take_profit_pct}%`);
+      return `<div class="model-row">
+        <div class="info"><div class="name">${sym}</div><div class="meta">${parts.join(" · ")}</div></div>
+      </div>`;
+    })
+    .join("");
 }
 
 function renderSectors(sectors) {
@@ -706,6 +728,83 @@ function renderBacktest(r) {
           tension: 0.25,
           pointRadius: 0,
         },
+      ],
+    },
+    options: {
+      maintainAspectRatio: false,
+      interaction: { mode: "index", intersect: false },
+      plugins: { legend: { labels: { color: "#8b97ab" } } },
+      scales: {
+        x: { ticks: { color: "#8b97ab", maxTicksLimit: 10 }, grid: { color: "#1b2230" } },
+        y: { ticks: { color: "#8b97ab" }, grid: { color: "#1b2230" } },
+      },
+    },
+  });
+}
+
+/* ---------- strategy backtest ---------- */
+$("#strat-form").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const status = $("#strat-status");
+  const btn = $("#strat-run");
+  const stop = parseFloat($("#strat-stop").value);
+  btn.disabled = true;
+  status.textContent = "Downloading history and simulating the strategy…";
+  status.classList.remove("hidden");
+  try {
+    const resp = await api("/api/strategy", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        symbol: $("#strat-symbol").value.trim().toUpperCase(),
+        strategy: $("#strat-type").value,
+        period: $("#strat-period").value,
+        stop_loss_pct: isNaN(stop) ? null : stop,
+      }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || resp.statusText);
+    }
+    renderStrategy(await resp.json());
+    status.classList.add("hidden");
+  } catch (err) {
+    status.textContent = `Strategy backtest failed: ${err.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+});
+
+function renderStrategy(r) {
+  $("#strat-results").classList.remove("hidden");
+  const s = r.strategy_performance;
+  const b = r.buy_hold_performance;
+  const kpis = [
+    { label: "Strategy return", value: `${s.total_return_pct}%`, delta: `buy & hold: ${b.total_return_pct}%`, valueClass: cls(s.total_return_pct) },
+    { label: "Strategy CAGR", value: `${s.cagr_pct}%`, delta: `buy & hold: ${b.cagr_pct}%`, valueClass: cls(s.cagr_pct) },
+    { label: "Sharpe", value: s.sharpe_ratio, delta: `buy & hold: ${b.sharpe_ratio}`, valueClass: cls(s.sharpe_ratio) },
+    { label: "Max drawdown", value: `${s.max_drawdown_pct}%`, delta: `buy & hold: ${b.max_drawdown_pct}%`, valueClass: "down" },
+    { label: "Trades", value: r.num_trades, delta: `win rate ${r.win_rate_pct}%` },
+  ];
+  $("#strat-metrics").innerHTML = kpis
+    .map(
+      (k) => `<div class="kpi">
+        <div class="label">${k.label}</div>
+        <div class="value ${k.valueClass || ""}">${k.value}</div>
+        ${k.delta ? `<div class="delta flat">${k.delta}</div>` : ""}
+      </div>`
+    )
+    .join("");
+
+  const ctx = $("#strat-chart");
+  if (window._stratChart) window._stratChart.destroy();
+  window._stratChart = new Chart(ctx, {
+    type: "line",
+    data: {
+      labels: r.curve.map((c) => c.date),
+      datasets: [
+        { label: `${r.strategy}`, data: r.curve.map((c) => c.strategy_idx), borderColor: "#3ecf8e", backgroundColor: "rgba(62,207,142,.12)", fill: true, tension: 0.25, pointRadius: 0 },
+        { label: "Buy & hold", data: r.curve.map((c) => c.buy_hold_idx), borderColor: "#8b97ab", borderDash: [6, 4], fill: false, tension: 0.25, pointRadius: 0 },
       ],
     },
     options: {

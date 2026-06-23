@@ -143,6 +143,83 @@ _TOOL_DEFS = [
         },
     ),
     (
+        "get_indicators",
+        "Get technical indicators for a ticker: RSI, MACD, Bollinger Bands, "
+        "50/200-day SMAs, ATR, plus a plain-language signal read. Call this "
+        "when assessing entry/exit timing or momentum for a name.",
+        {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string"},
+                "period": {
+                    "type": "string",
+                    "enum": ["3mo", "6mo", "1y", "2y", "5y"],
+                    "description": "Lookback window (default 1y)",
+                },
+            },
+            "required": ["symbol"],
+        },
+    ),
+    (
+        "backtest_strategy",
+        "Backtest a rule-based technical strategy on one ticker over history, "
+        "with fees and an optional stop-loss: returns win rate, number of "
+        "trades, CAGR/Sharpe/drawdown, and the comparison vs buy-and-hold. "
+        "Use this to validate a timing strategy before trading it.",
+        {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string"},
+                "strategy": {
+                    "type": "string",
+                    "enum": ["sma_cross", "rsi", "macd_cross", "bollinger"],
+                },
+                "period": {
+                    "type": "string",
+                    "enum": ["1y", "2y", "5y", "10y", "max"],
+                    "description": "Lookback window (default 5y)",
+                },
+                "stop_loss_pct": {
+                    "type": "number",
+                    "description": "Optional stop-loss percent (e.g. 8 for -8%)",
+                },
+            },
+            "required": ["symbol", "strategy"],
+        },
+    ),
+    (
+        "set_protective_orders",
+        "Attach protective exit levels to a held position: stop-loss, "
+        "trailing-stop, and/or take-profit (each a percent). A monitor "
+        "auto-sells the full position when a level triggers. Set these right "
+        "after opening a position to cap downside.",
+        {
+            "type": "object",
+            "properties": {
+                "symbol": {"type": "string"},
+                "stop_loss_pct": {
+                    "type": "number",
+                    "description": "Exit if price falls this % below avg cost",
+                },
+                "trailing_stop_pct": {
+                    "type": "number",
+                    "description": "Exit if price falls this % below its peak",
+                },
+                "take_profit_pct": {
+                    "type": "number",
+                    "description": "Exit if price rises this % above avg cost",
+                },
+            },
+            "required": ["symbol"],
+        },
+    ),
+    (
+        "get_protective_orders",
+        "List the protective orders (stop-loss / trailing-stop / take-profit) "
+        "currently attached to positions.",
+        {"type": "object", "properties": {}},
+    ),
+    (
         "record_thesis",
         "Persist an investment thesis to the journal. Call this whenever you "
         "form or materially revise a view on a name — before any related order.",
@@ -231,12 +308,14 @@ class Toolkit:
         risk: RiskManager,
         journal: Journal,
         approve_fn: Callable[[dict], bool] | None = None,
+        stop_book=None,
     ):
         self.portfolio = portfolio
         self.broker = broker
         self.risk = risk
         self.journal = journal
         self.approve_fn = approve_fn
+        self.stop_book = stop_book
 
     def execute(self, name: str, args: dict):
         handler = getattr(self, f"_tool_{name}", None)
@@ -321,6 +400,41 @@ class Toolkit:
             "fill_price": round(fill.price, 4),
             "value": round(fill.value, 2),
         }
+
+    def _tool_get_indicators(self, args):
+        from .tools import indicators
+
+        return indicators.get_indicators(args["symbol"], args.get("period", "1y"))
+
+    def _tool_backtest_strategy(self, args):
+        from .strategy import run_strategy
+
+        result = run_strategy(
+            args["symbol"],
+            strategy=args.get("strategy", "sma_cross"),
+            period=args.get("period", "5y"),
+            stop_loss_pct=args.get("stop_loss_pct"),
+        )
+        result.pop("curve", None)  # chart data is for the UI, not the model
+        return result
+
+    def _tool_set_protective_orders(self, args):
+        if self.stop_book is None:
+            return {"error": "protective orders not available in this context"}
+        symbol = args["symbol"].upper()
+        if symbol not in self.portfolio.positions:
+            return {"error": f"No open position in {symbol} to protect"}
+        return self.stop_book.set(
+            symbol,
+            stop_loss_pct=args.get("stop_loss_pct"),
+            trailing_stop_pct=args.get("trailing_stop_pct"),
+            take_profit_pct=args.get("take_profit_pct"),
+        )
+
+    def _tool_get_protective_orders(self, args):
+        if self.stop_book is None:
+            return {}
+        return self.stop_book.all()
 
     def _tool_record_thesis(self, args):
         return self.journal.record_thesis(

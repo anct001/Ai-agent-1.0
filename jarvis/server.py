@@ -97,17 +97,15 @@ class AppState:
         self.chat_lock = threading.Lock()  # one agent turn at a time
         self._macro_cache: tuple[float, dict] | None = None
         self._agent = None
+        self._broker = None
 
     @property
-    def agent(self):
-        if self._agent is None:
-            from .agent import InvestmentAgent
-            from .brokers.paper import PaperBroker
-
+    def broker(self):
+        if self._broker is None:
             if settings.execution_mode == "live":
                 from .brokers.alpaca import AlpacaBroker
 
-                broker = AlpacaBroker(
+                self._broker = AlpacaBroker(
                     settings.alpaca_api_key,
                     settings.alpaca_secret_key,
                     settings.alpaca_base_url,
@@ -115,24 +113,46 @@ class AppState:
                     self.market_data.last_price,
                 )
             else:
-                broker = PaperBroker(
+                from .brokers.paper import PaperBroker
+
+                self._broker = PaperBroker(
                     self.portfolio,
                     self.market_data.last_price,
                     slippage_bps=settings.fill_slippage_bps,
                     commission=settings.commission_per_order,
                 )
+        return self._broker
+
+    @property
+    def agent(self):
+        if self._agent is None:
+            from .agent import InvestmentAgent
 
             approve_fn = None if settings.auto_approve else self.approvals.approve_fn
             self._agent = InvestmentAgent(
                 settings,
                 self.portfolio,
-                broker,
+                self.broker,
                 self.risk,
                 self.journal,
                 approve_fn,
                 history_path=settings.data_dir / "chat_history.json",
             )
         return self._agent
+
+    def run_protective_stops(self) -> list[dict]:
+        from .stops import StopBook, StopEngine
+
+        book = StopBook(settings.data_dir / "stops.json")
+        if not book.all():
+            return []
+        engine = StopEngine(book, self.portfolio, self.broker, self.market_data.last_price)
+        return engine.run()
+
+    def stop_orders(self) -> dict:
+        from .stops import StopBook
+
+        return StopBook(settings.data_dir / "stops.json").all()
 
     def rebuild_agent(self) -> None:
         """Drop the cached agent so the next turn picks up a backend change."""
@@ -160,6 +180,7 @@ class AppState:
             snap["sector_allocation"][pos["sector"]] = round(
                 snap["sector_allocation"].get(pos["sector"], 0.0) + pos["value"], 2
             )
+        snap["protective_orders"] = self.stop_orders()
         return snap
 
 
@@ -225,11 +246,64 @@ def api_journal(request: Request):
 @api.get("/alerts")
 def api_alerts(request: Request):
     _require_auth(request)
+    # Protective stops run on this poll so triggered exits happen even when
+    # nobody is chatting; surface them as critical alerts.
+    stop_alerts = []
+    try:
+        for ex in state.run_protective_stops():
+            if "error" in ex:
+                continue
+            stop_alerts.append(
+                {
+                    "severity": "critical",
+                    "title": f"Auto-sold {ex['symbol']} — {ex['reason']}",
+                    "detail": f"Exited {ex['qty']} {ex['symbol']} @ ${ex['exit_price']:,.2f}.",
+                }
+            )
+    except Exception:
+        pass
     try:
         snap = state.snapshot()
     except Exception:
-        return []
-    return state.alerts.process(snap, state.history.read())
+        return stop_alerts
+    return stop_alerts + state.alerts.process(snap, state.history.read())
+
+
+@api.get("/protective-orders")
+def api_protective_orders(request: Request):
+    _require_auth(request)
+    return state.stop_orders()
+
+
+@api.get("/indicators")
+def api_indicators(request: Request, symbol: str, period: str = "1y"):
+    _require_auth(request)
+    from .tools import indicators
+
+    return indicators.get_indicators(symbol, period)
+
+
+class StrategyRequest(BaseModel):
+    symbol: str
+    strategy: str = "sma_cross"
+    period: str = "5y"
+    stop_loss_pct: float | None = None
+
+
+@api.post("/strategy")
+def api_strategy(req: StrategyRequest, request: Request):
+    _require_auth(request)
+    from .strategy import run_strategy
+
+    try:
+        return run_strategy(
+            req.symbol,
+            strategy=req.strategy,
+            period=req.period,
+            stop_loss_pct=req.stop_loss_pct,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 class BacktestRequest(BaseModel):

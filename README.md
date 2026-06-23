@@ -56,9 +56,30 @@ python -m jarvis briefing                   # daily macro + portfolio briefing
 python -m jarvis auto --once                # one autonomous management cycle
 python -m jarvis auto                       # autonomous loop (daily by default)
 python -m jarvis backtest "NVDA=0.4,GLD=0.2"  # backtest an allocation vs SPY
+python -m jarvis strategy NVDA --type sma_cross --stop-loss 8   # strategy backtest
 python -m jarvis models                     # list / pull / select local models
 python -m jarvis portfolio                  # print holdings (no LLM call)
 ```
+
+## Quant features (Freqtrade-style)
+
+JARVIS now carries a technical-trading layer alongside its LLM reasoning:
+
+- **Technical indicators** — RSI, MACD, Bollinger Bands, 50/200-day SMAs and
+  ATR, with a plain-language signal read. The agent calls `get_indicators`
+  to time entries/exits; also at `GET /api/indicators?symbol=NVDA`.
+- **Protective orders** — attach a **stop-loss**, **trailing stop**, and/or
+  **take-profit** to any position. A monitor checks them on every dashboard
+  alert poll and every autonomous cycle and **auto-exits** the full position
+  when one triggers (a protective sell needs no approval). Set them in chat
+  ("put an 8% stop and a 15% trailing stop on NVDA") or the agent does it
+  itself after opening a position; they show on the Overview tab.
+- **Strategy backtester** — rule-based timing strategies (`sma_cross`, `rsi`,
+  `macd_cross`, `bollinger`) backtested on one ticker with fees and an
+  optional stop-loss, reporting win rate, number of trades, CAGR/Sharpe/
+  drawdown, and the comparison vs buy-and-hold. Use the **Strategy Backtest**
+  card on the Backtest tab, the CLI (`jarvis strategy`), or the agent's
+  `backtest_strategy` tool.
 
 ## Choosing the AI model (cloud or local)
 
@@ -161,6 +182,9 @@ The regime is cautiously risk-on: the 10Y/3M curve has re-steepened to ...
 | `jarvis/backtest.py` | Target-weight backtester: rebalancing, trading costs, CAGR/Sharpe/drawdown vs benchmark |
 | `jarvis/alerts.py` | Alert rules (position/portfolio drawdown, daily move) + webhook/email fan-out, deduped daily |
 | `jarvis/history.py` | Daily equity-curve snapshots with S&P 500 benchmark, normalized for charting |
+| `jarvis/tools/indicators.py` | Technical indicators in pure pandas (RSI, MACD, Bollinger, SMA/EMA, ATR) |
+| `jarvis/strategy.py` | Signal-level strategy backtester (sma_cross/rsi/macd/bollinger) with fees + stop-loss |
+| `jarvis/stops.py` | Protective orders (stop-loss/trailing/take-profit) + auto-exit engine |
 | `jarvis/toolkit.py` | Shared tool implementations + dual schema formats (Anthropic & OpenAI/Ollama) |
 | `jarvis/llm/ollama.py` | Local-model client: health, list, pull (streamed progress), chat |
 | `jarvis/server.py` | FastAPI backend: REST + SSE chat/pull streaming + browser order-approval hub + Bearer-token auth |
@@ -219,11 +243,12 @@ does **not** yet (an honest gap list, roughly by impact):
 | **Live exchange execution** | Many crypto exchanges via CCXT | Paper default; Alpaca (US equities) only | No crypto/CCXT, no multi-exchange |
 | **Strategy backtesting** | Tick/candle-level, per-trade, with fees & slippage | Portfolio weight-level, daily bars | No signal/indicator-level engine |
 | **Strategy optimization** | Hyperopt (Bayesian param search) | none | No parameter optimization |
-| **Technical indicators** | Full TA-Lib / pandas-ta library | SMA, vol, drawdown only | No indicator framework |
-| **Order types** | Limit, stop-loss, trailing stop, OCO | Market orders only | No stop/limit/trailing |
+| **Technical indicators** | Full TA-Lib / pandas-ta library | RSI, MACD, Bollinger, SMA/EMA, ATR ✅ | Smaller library |
+| **Order types** | Limit, stop-loss, trailing stop, OCO | Market + stop-loss/trailing/take-profit ✅ | No limit/OCO |
+| **Strategy backtesting** | Tick/candle-level, per-trade | Signal-level + allocation-level ✅ | Not tick-level |
 | **Live price feed** | Websocket streaming | Polled quotes (60s cache) | No real-time stream |
 | **Dry-run vs live parity** | Same engine both modes | Separate paper/live brokers | Less battle-tested live path |
-| **Position management** | Per-trade stop-loss/ROI/timeouts | Thesis-level, manual | No automated exit rules |
+| **Position management** | Per-trade stop-loss/ROI/timeouts | Auto stop-loss/trailing/take-profit ✅ | No time-based ROI tables |
 | **Plotting/analytics** | Detailed per-trade analysis, profit by pair | Equity curve, allocation, sectors | No per-trade attribution |
 | **Notifications** | Telegram bot (full control + commands) | Webhook + email alerts | No interactive bot control |
 | **Maturity** | Years of production use, large community | New project | Less hardened |
@@ -235,26 +260,27 @@ crypto-first), and a conversational dashboard. The two are complementary:
 Freqtrade is the better *executor* of a fixed quantitative edge; JARVIS is the
 better *analyst and allocator*.
 
-Concrete next steps to close the most valuable gaps: a technical-indicator
-tool (pandas-ta) so the agent can reason on RSI/MACD/Bollinger; stop-loss and
-trailing-stop order types in the risk/broker layer; a signal-level backtester;
-and a Telegram interface mirroring the web chat.
+The three highest-value gaps from this list — a technical-indicator tool,
+stop-loss/trailing-stop order types, and a signal-level backtester — are now
+implemented (see *Quant features* above). Remaining Freqtrade-ward steps:
+crypto/multi-exchange execution via CCXT, a Telegram interface mirroring the
+web chat, websocket price streaming, hyperparameter optimization, and
+limit/OCO order types.
 
 ## Roadmap / known gaps
 
 Previously listed gaps now shipped: backtesting, alerts (webhook + email),
-sector exposure, chat persistence, dashboard auth, realistic paper fills
-(slippage + commission), Docker deployment, and **local-model support
-(Ollama) with in-app download and selection**. Still on the list (see the
-Freqtrade comparison above for the highest-value items):
+sector exposure, chat persistence, dashboard auth, realistic paper fills,
+Docker, local-model support (Ollama), and the **quant layer — technical
+indicators, stop-loss/trailing/take-profit protective orders, and a
+signal-level strategy backtester**. Still on the list:
 
-- **Technical indicators** — RSI/MACD/Bollinger tool for signal-level reasoning.
-- **Advanced order types** — stop-loss, trailing stop, limit orders.
-- **Signal-level backtester** — current engine is allocation/weight-level.
 - **Crypto / multi-exchange execution** — equities (Alpaca) only today.
 - **Telegram bot** — interactive control mirroring the web chat.
+- **Limit / OCO orders + time-based ROI tables** — market + protective only.
+- **Websocket price streaming** — quotes are polled (60s cache).
+- **Hyperparameter optimization** — no Freqtrade-style Hyperopt yet.
 - **Factor/geography exposure** — sector view exists; no factor/regional split.
-- **Event-driven alerts** — evaluated on polls/cycles, not a price stream.
 - **Multi-user support** — single portfolio, single token, single owner.
 
 ## Disclaimer
