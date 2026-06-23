@@ -134,6 +134,10 @@ class AppState:
             )
         return self._agent
 
+    def rebuild_agent(self) -> None:
+        """Drop the cached agent so the next turn picks up a backend change."""
+        self._agent = None
+
     def macro(self) -> dict:
         now = time.time()
         if self._macro_cache and now - self._macro_cache[0] < 300:
@@ -309,6 +313,67 @@ def api_chat(req: ChatRequest, request: Request):
 
     return StreamingResponse(
         event_stream(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
+@api.get("/models")
+def api_models(request: Request):
+    _require_auth(request)
+    from .llm.ollama import SUGGESTED_MODELS, OllamaClient
+
+    client = OllamaClient(settings.ollama_host)
+    available = client.is_available()
+    return {
+        "provider": settings.llm_provider,
+        "active_model": settings.active_model(),
+        "anthropic_model": settings.model,
+        "ollama_available": available,
+        "ollama_host": settings.ollama_host,
+        "installed": client.list_models() if available else [],
+        "suggested": SUGGESTED_MODELS,
+    }
+
+
+class SelectModelRequest(BaseModel):
+    provider: str
+    model: str
+
+
+@api.post("/models/select")
+def api_models_select(req: SelectModelRequest, request: Request):
+    _require_auth(request)
+    try:
+        settings.select_llm(req.provider, req.model)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    state.rebuild_agent()  # next chat turn uses the new backend
+    return {"provider": settings.llm_provider, "active_model": settings.active_model()}
+
+
+class PullModelRequest(BaseModel):
+    name: str
+
+
+@api.post("/models/pull")
+def api_models_pull(req: PullModelRequest, request: Request):
+    _require_auth(request)
+    from .llm.ollama import OllamaClient, OllamaError
+
+    client = OllamaClient(settings.ollama_host)
+
+    def stream():
+        try:
+            for event in client.pull(req.name):
+                yield f"data: {json.dumps(event)}\n\n"
+            yield f'data: {json.dumps({"status": "success", "percent": 100})}\n\n'
+        except OllamaError as exc:
+            yield f'data: {json.dumps({"error": str(exc)})}\n\n'
+        yield f'data: {json.dumps({"done": True})}\n\n'
+
+    return StreamingResponse(
+        stream(),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

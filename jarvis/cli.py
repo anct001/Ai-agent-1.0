@@ -5,6 +5,8 @@
     python -m jarvis briefing            daily macro + portfolio briefing
     python -m jarvis auto [--interval N] autonomous management loop
     python -m jarvis dashboard           web dashboard at localhost:8000
+    python -m jarvis models [list|pull|use [name]]  manage local AI models
+    python -m jarvis backtest "NVDA=0.4,GLD=0.2"    backtest an allocation
     python -m jarvis portfolio           print holdings (no LLM call)
 """
 
@@ -85,7 +87,10 @@ def cmd_chat(args) -> None:
     agent = _build_agent(auto_approve=settings.auto_approve)
     mode = settings.execution_mode
     approval = "auto-approve" if settings.auto_approve else "ask before orders"
-    print(f"JARVIS ready — {mode} mode, {approval}. Type 'exit' to quit.\n")
+    print(
+        f"JARVIS ready — {agent.provider}:{agent.model}, {mode} mode, "
+        f"{approval}. Type 'exit' to quit.\n"
+    )
     while True:
         try:
             user = input("you > ").strip()
@@ -165,6 +170,62 @@ def _run_alert_check(portfolio: Portfolio) -> None:
             print(f"[ALERT/{alert['severity']}] {alert['title']} — {alert['detail']}")
     except Exception as exc:
         print(f"[alert check failed: {exc}]", file=sys.stderr)
+
+
+def cmd_models(args) -> None:
+    from .llm.ollama import SUGGESTED_MODELS, OllamaClient, OllamaError
+
+    client = OllamaClient(settings.ollama_host)
+    action = args.action or "list"
+
+    if action == "list":
+        print(f"Active backend: {settings.llm_provider} · {settings.active_model()}\n")
+        if not client.is_available():
+            print(f"Ollama not reachable at {settings.ollama_host}.")
+            print("Install from https://ollama.com, run `ollama serve`, then retry.\n")
+        else:
+            installed = client.list_models()
+            if installed:
+                print("Installed local models:")
+                for m in installed:
+                    size = f"{m['size_gb']} GB" if m["size_gb"] else "?"
+                    print(f"  • {m['name']:<22} {size:>9}  {m['modified']}")
+            else:
+                print("No local models installed yet.")
+        print("\nSuggested (tool-calling capable):")
+        for m in SUGGESTED_MODELS:
+            print(f"  • {m['name']:<18} {m['size']:>9}  {m['note']}")
+        print('\nDownload one with:  python -m jarvis models pull qwen2.5:7b')
+        return
+
+    if action == "pull":
+        if not args.name:
+            sys.exit("Usage: python -m jarvis models pull <name>")
+        print(f"Pulling {args.name} … (first download can take a while)")
+        last = -1
+        try:
+            for ev in client.pull(args.name):
+                pct = ev.get("percent")
+                if pct is not None and int(pct) != last:
+                    last = int(pct)
+                    bar = "█" * (last // 4) + "░" * (25 - last // 4)
+                    print(f"\r  [{bar}] {pct:5.1f}%  {ev['status']:<20}", end="", flush=True)
+            print("\nDone.")
+        except OllamaError as exc:
+            sys.exit(f"\nPull failed: {exc}")
+        return
+
+    if action == "use":
+        if not args.name:
+            sys.exit("Usage: python -m jarvis models use <name|anthropic:model>")
+        if args.name.startswith("anthropic:"):
+            settings.select_llm("anthropic", args.name.split(":", 1)[1])
+        else:
+            if client.is_available() and not client.has_model(args.name):
+                print(f"Note: {args.name} is not installed. Pull it first.")
+            settings.select_llm("ollama", args.name)
+        print(f"Active backend is now: {settings.llm_provider} · {settings.active_model()}")
+        return
 
 
 def cmd_dashboard(args) -> None:
@@ -263,6 +324,13 @@ def main() -> None:
     )
     p_bt.add_argument("--benchmark", default="SPY")
     p_bt.set_defaults(func=cmd_backtest)
+
+    p_models = sub.add_parser("models", help="list / pull / select local AI models")
+    p_models.add_argument(
+        "action", nargs="?", default="list", choices=["list", "pull", "use"]
+    )
+    p_models.add_argument("name", nargs="?", help="model name (for pull/use)")
+    p_models.set_defaults(func=cmd_models)
 
     p_dash = sub.add_parser("dashboard", help="launch the web dashboard")
     p_dash.add_argument("--host", default="127.0.0.1", help="bind address")

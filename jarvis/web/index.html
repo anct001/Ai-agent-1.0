@@ -24,6 +24,7 @@
     <button class="tab active" data-tab="overview">Overview</button>
     <button class="tab" data-tab="chat">Chat</button>
     <button class="tab" data-tab="backtest">Backtest</button>
+    <button class="tab" data-tab="models">Models</button>
     <button class="tab" data-tab="journal">Journal</button>
     <button class="tab" data-tab="trades">Trades</button>
   </nav>
@@ -122,6 +123,41 @@
       <div class="card">
         <h2>Backtest Curve <span class="hint">(indexed to 100)</span></h2>
         <div class="chart-box"><canvas id="bt-chart"></canvas></div>
+      </div>
+    </section>
+  </main>
+
+  <!-- ===== Models ===== -->
+  <main id="tab-models" class="tab-panel">
+    <section class="card">
+      <h2>Active AI Backend</h2>
+      <div id="active-model" class="active-model">Loading…</div>
+      <p class="hint" style="margin-top:10px">
+        Cloud (Claude) is most capable and includes live web search. Local
+        models run fully on your machine via <strong>Ollama</strong> — private
+        and free, but no web search.
+      </p>
+    </section>
+
+    <section class="grid-2">
+      <div class="card">
+        <h2>Cloud — Anthropic Claude</h2>
+        <div id="cloud-models" class="stack"></div>
+      </div>
+      <div class="card">
+        <h2>Local — Ollama <span id="ollama-status" class="badge">…</span></h2>
+        <div id="local-models" class="stack"></div>
+        <hr class="sep" />
+        <h2 style="margin-top:14px">Download a model</h2>
+        <div id="suggested-models" class="stack"></div>
+        <div class="bt-form" style="margin-top:12px">
+          <input id="pull-name" type="text" placeholder="or type a name, e.g. qwen2.5:14b" />
+          <button id="pull-btn">Download</button>
+        </div>
+        <div id="pull-progress" class="pull-progress hidden">
+          <div class="pull-bar-track"><div id="pull-bar" class="pull-bar"></div></div>
+          <span id="pull-label" class="hint"></span>
+        </div>
       </div>
     </section>
   </main>

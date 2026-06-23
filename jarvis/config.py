@@ -47,9 +47,15 @@ class RiskLimits:
 
 @dataclass
 class Settings:
+    # LLM backend: "anthropic" (Claude API) or "ollama" (local model).
+    llm_provider: str = os.getenv("LLM_PROVIDER", "anthropic").lower()
     model: str = os.getenv("JARVIS_MODEL", "claude-opus-4-8")
     effort: str = os.getenv("JARVIS_EFFORT", "high")
     max_tokens: int = _env_int("JARVIS_MAX_TOKENS", 64000)
+
+    # Local model (Ollama) settings.
+    ollama_host: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    ollama_model: str = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
 
     execution_mode: str = os.getenv("EXECUTION_MODE", "paper").lower()
     paper_starting_cash: float = _env_float("PAPER_STARTING_CASH", 100_000.0)
@@ -91,6 +97,56 @@ class Settings:
                 f"EXECUTION_MODE must be 'paper' or 'live', got {self.execution_mode!r}"
             )
         self.data_dir.mkdir(parents=True, exist_ok=True)
+        self._apply_saved_llm_selection()
+
+    # ---------- runtime-selectable LLM ----------
+
+    @property
+    def _selection_path(self) -> Path:
+        return self.data_dir / "llm_selection.json"
+
+    def _apply_saved_llm_selection(self) -> None:
+        """A selection made in the dashboard/CLI persists here and overrides
+        env on the next start."""
+        import json
+
+        if not self._selection_path.exists():
+            return
+        try:
+            sel = json.loads(self._selection_path.read_text())
+        except (json.JSONDecodeError, OSError):
+            return
+        if sel.get("provider"):
+            self.llm_provider = sel["provider"]
+        if sel.get("anthropic_model"):
+            self.model = sel["anthropic_model"]
+        if sel.get("ollama_model"):
+            self.ollama_model = sel["ollama_model"]
+
+    def select_llm(self, provider: str, model: str) -> None:
+        """Switch the active backend at runtime and persist the choice."""
+        import json
+
+        provider = provider.lower()
+        if provider not in ("anthropic", "ollama"):
+            raise ValueError("provider must be 'anthropic' or 'ollama'")
+        self.llm_provider = provider
+        if provider == "ollama":
+            self.ollama_model = model
+        else:
+            self.model = model
+        self._selection_path.write_text(
+            json.dumps(
+                {
+                    "provider": self.llm_provider,
+                    "anthropic_model": self.model,
+                    "ollama_model": self.ollama_model,
+                }
+            )
+        )
+
+    def active_model(self) -> str:
+        return self.ollama_model if self.llm_provider == "ollama" else self.model
 
 
 settings = Settings()

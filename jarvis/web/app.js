@@ -49,8 +49,142 @@ document.querySelectorAll(".tab").forEach((btn) => {
     $(`#tab-${btn.dataset.tab}`).classList.add("active");
     if (btn.dataset.tab === "journal") loadJournal();
     if (btn.dataset.tab === "trades") loadTrades();
+    if (btn.dataset.tab === "models") loadModels();
   });
 });
+
+/* ---------- models ---------- */
+const CLOUD_MODELS = [
+  { name: "claude-opus-4-8", note: "Most capable; web search + adaptive thinking" },
+  { name: "claude-sonnet-4-6", note: "Faster and cheaper, very strong" },
+  { name: "claude-haiku-4-5", note: "Fastest, lowest cost" },
+];
+
+async function loadModels() {
+  let info;
+  try {
+    info = await apiJson("/api/models");
+  } catch {
+    return;
+  }
+  $("#active-model").innerHTML =
+    `<span class="prov">${info.provider === "ollama" ? "Local · Ollama" : "Cloud · Anthropic"}</span> — ${info.active_model}`;
+
+  const isActive = (prov, name) =>
+    info.provider === prov && info.active_model === name;
+
+  $("#cloud-models").innerHTML = CLOUD_MODELS.map(
+    (m) => modelRow(m.name, m.note, isActive("anthropic", m.name), "anthropic", m.name)
+  ).join("");
+
+  const status = $("#ollama-status");
+  if (info.ollama_available) {
+    status.textContent = "running";
+    status.className = "badge paper";
+  } else {
+    status.textContent = "offline";
+    status.className = "badge live";
+  }
+
+  $("#local-models").innerHTML = info.ollama_available
+    ? info.installed.length
+      ? info.installed
+          .map((m) =>
+            modelRow(
+              m.name,
+              `${m.size_gb ? m.size_gb + " GB" : ""} ${m.modified || ""}`.trim(),
+              isActive("ollama", m.name),
+              "ollama",
+              m.name
+            )
+          )
+          .join("")
+      : `<span class="empty">No local models installed — download one below.</span>`
+    : `<span class="empty">Ollama not detected at ${info.ollama_host}. Install from ollama.com and run <code>ollama serve</code>.</span>`;
+
+  const installedNames = new Set(info.installed.map((m) => m.name));
+  $("#suggested-models").innerHTML = info.suggested
+    .map((m) => {
+      const have = installedNames.has(m.name);
+      return `<div class="model-row">
+        <div class="info"><div class="name">${m.name}</div><div class="meta">${m.size} · ${m.note}</div></div>
+        ${have ? `<button class="btn-use" disabled>Installed</button>`
+               : `<button class="btn-pull" data-pull="${m.name}">Download</button>`}
+      </div>`;
+    })
+    .join("");
+
+  document.querySelectorAll("[data-use-prov]").forEach((b) =>
+    b.addEventListener("click", () => selectModel(b.dataset.useProv, b.dataset.useName))
+  );
+  document.querySelectorAll("[data-pull]").forEach((b) =>
+    b.addEventListener("click", () => pullModel(b.dataset.pull))
+  );
+}
+
+function modelRow(name, meta, active, prov, value) {
+  return `<div class="model-row ${active ? "active" : ""}">
+    <div class="info"><div class="name">${name}</div><div class="meta">${meta}</div></div>
+    <button class="btn-use" ${active ? "disabled" : ""} data-use-prov="${prov}" data-use-name="${value}">
+      ${active ? "✓ Active" : "Use"}
+    </button>
+  </div>`;
+}
+
+async function selectModel(provider, model) {
+  await api("/api/models/select", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider, model }),
+  });
+  loadModels();
+}
+
+function pullModel(name) {
+  const target = name || $("#pull-name").value.trim();
+  if (!target) return;
+  const box = $("#pull-progress");
+  const bar = $("#pull-bar");
+  const label = $("#pull-label");
+  box.classList.remove("hidden");
+  label.textContent = `Starting download of ${target}…`;
+  bar.style.width = "0%";
+
+  api("/api/models/pull", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: target }),
+  }).then(async (resp) => {
+    const reader = resp.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf("\n\n")) >= 0) {
+        const chunk = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        if (!chunk.startsWith("data: ")) continue;
+        const ev = JSON.parse(chunk.slice(6));
+        if (ev.error) {
+          label.textContent = `Error: ${ev.error}`;
+          return;
+        }
+        if (ev.done) {
+          label.textContent = "Download complete.";
+          loadModels();
+          return;
+        }
+        if (ev.percent != null) bar.style.width = `${ev.percent}%`;
+        label.textContent = `${ev.status || "downloading"} ${ev.percent != null ? ev.percent + "%" : ""}`;
+      }
+    }
+  });
+}
+
+$("#pull-btn").addEventListener("click", () => pullModel(""));
 
 /* ---------- overview ---------- */
 async function loadPortfolio() {
