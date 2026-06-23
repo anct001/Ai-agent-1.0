@@ -434,6 +434,9 @@ class Toolkit:
         snap["broker"] = self.broker.name
         snap["risk_limits"] = self.risk.describe()
         snap["sector_allocation"] = market_data.sector_allocation(snap["positions"])
+        snap["asset_class_allocation"] = market_data.asset_class_allocation(
+            snap["positions"]
+        )
         return snap
 
     def _tool_run_backtest(self, args):

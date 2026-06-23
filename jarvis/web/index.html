@@ -61,6 +61,19 @@
 
     <section class="grid-2">
       <div class="card">
+        <h2>Geography <span class="hint">(by country of domicile)</span></h2>
+        <div class="chart-box donut small"><canvas id="country-chart"></canvas></div>
+        <p id="country-empty" class="empty hidden">Geography appears once you hold positions.</p>
+      </div>
+      <div class="card">
+        <h2>Asset Class</h2>
+        <div class="chart-box donut small"><canvas id="assetclass-chart"></canvas></div>
+        <p id="assetclass-empty" class="empty hidden">Asset classes appear once you hold positions.</p>
+      </div>
+    </section>
+
+    <section class="grid-2">
+      <div class="card">
         <h2>Protective Orders <span class="hint">(auto-exit · set via chat)</span></h2>
         <div id="stops-list" class="stack"><span class="empty">No protective orders set.</span></div>
       </div>

@@ -51,3 +51,27 @@ def test_custom_grid_respected():
     )
     assert result["combinations_tested"] == 1
     assert result["best"]["params"] == {"fast": 10, "slow": 50}
+
+
+def test_random_search_bounds_evaluations():
+    prices = _trending()
+    big = {"fast": [5, 10, 15, 20], "slow": [30, 60, 90, 120, 150]}
+    result = compute_optimization(
+        prices, "sma_cross", grid=big, method="random", max_evals=5, fee_bps=0.0
+    )
+    assert result["method"] == "random"
+    assert result["combinations_tested"] <= 5
+
+
+def test_random_search_is_deterministic_with_seed():
+    prices = _trending()
+    big = {"fast": [5, 10, 15, 20], "slow": [30, 60, 90, 120, 150]}
+    a = compute_optimization(prices, "sma_cross", grid=big, method="random", max_evals=5, seed=1, fee_bps=0.0)
+    b = compute_optimization(prices, "sma_cross", grid=big, method="random", max_evals=5, seed=1, fee_bps=0.0)
+    assert a["best"]["params"] == b["best"]["params"]
+
+
+def test_rejects_bad_method():
+    prices = _trending()
+    with pytest.raises(ValueError, match="method"):
+        compute_optimization(prices, "sma_cross", method="bayesian")

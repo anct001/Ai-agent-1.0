@@ -179,10 +179,12 @@ def _run_protective_stops(portfolio: Portfolio) -> None:
         from .tools import market_data
 
         book = StopBook(settings.data_dir / "stops.json")
-        if not book.all():
+        if not book.all() and not settings.roi_table:
             return
         broker = _build_broker(portfolio)
-        engine = StopEngine(book, portfolio, broker, market_data.last_price)
+        engine = StopEngine(
+            book, portfolio, broker, market_data.last_price, roi_table=settings.roi_table
+        )
         for exit_ in engine.run():
             if "error" in exit_:
                 print(f"[STOP/failed] {exit_['symbol']}: {exit_['error']}")
@@ -279,10 +281,11 @@ def cmd_optimize(args) -> None:
         strategy=args.type,
         period=args.period,
         objective=args.objective,
+        method=args.method,
     )
     print(
         f"\n{result['symbol']} · {result['strategy']} · objective={result['objective']} "
-        f"· {result['combinations_tested']} combos tested\n"
+        f"· {result['method']} · {result['combinations_tested']} combos tested\n"
     )
     best = result["best"]
     print(f"Best params: {best['params']}")
@@ -490,6 +493,7 @@ def main() -> None:
     p_opt.add_argument(
         "--objective", default="sharpe", choices=["sharpe", "return", "cagr"]
     )
+    p_opt.add_argument("--method", default="grid", choices=["grid", "random"])
     p_opt.set_defaults(func=cmd_optimize)
 
     p_models = sub.add_parser("models", help="list / pull / select local AI models")

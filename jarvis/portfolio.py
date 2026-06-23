@@ -18,6 +18,7 @@ from typing import Callable
 class Position:
     qty: float
     avg_cost: float
+    opened_at: str | None = None  # ISO time of the opening buy (for time-based ROI)
 
 
 class Portfolio:
@@ -45,7 +46,7 @@ class Portfolio:
         data = {
             "cash": self.cash,
             "positions": {
-                sym: {"qty": p.qty, "avg_cost": p.avg_cost}
+                sym: {"qty": p.qty, "avg_cost": p.avg_cost, "opened_at": p.opened_at}
                 for sym, p in self.positions.items()
             },
             "trades": self.trades,
@@ -97,7 +98,11 @@ class Portfolio:
                 pos.avg_cost = (pos.qty * pos.avg_cost + qty * price) / new_qty
                 pos.qty = new_qty
             else:
-                self.positions[symbol] = Position(qty=qty, avg_cost=price)
+                self.positions[symbol] = Position(
+                    qty=qty,
+                    avg_cost=price,
+                    opened_at=datetime.now(timezone.utc).isoformat(),
+                )
             self.cash -= cost
         elif side == "sell":
             pos = self.positions.get(symbol)

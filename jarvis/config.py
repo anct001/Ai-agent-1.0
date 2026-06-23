@@ -37,6 +37,18 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+def _env_json(name: str, default):
+    raw = os.getenv(name)
+    if not raw:
+        return default
+    import json
+
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, ValueError):
+        return default
+
+
 @dataclass
 class RiskLimits:
     max_order_pct: float = _env_float("RISK_MAX_ORDER_PCT", 0.10)
@@ -65,6 +77,10 @@ class Settings:
         default_factory=lambda: Path(os.getenv("JARVIS_DATA_DIR", "data"))
     )
     risk: RiskLimits = field(default_factory=RiskLimits)
+
+    # Time-based ROI table (Freqtrade-style): {held_days: min_profit_fraction}.
+    # Empty = disabled. Example: {"0":0.1,"5":0.05,"20":0.02,"60":0}
+    roi_table: dict = field(default_factory=lambda: _env_json("ROI_TABLE", {}))
 
     alpaca_api_key: str = os.getenv("ALPACA_API_KEY", "")
     alpaca_secret_key: str = os.getenv("ALPACA_SECRET_KEY", "")

@@ -156,9 +156,15 @@ class AppState:
         from .stops import StopBook, StopEngine
 
         book = StopBook(settings.data_dir / "stops.json")
-        if not book.all():
+        if not book.all() and not settings.roi_table:
             return []
-        engine = StopEngine(book, self.portfolio, self.broker, self.market_data.last_price)
+        engine = StopEngine(
+            book,
+            self.portfolio,
+            self.broker,
+            self.market_data.last_price,
+            roi_table=settings.roi_table,
+        )
         return engine.run()
 
     def run_pending_orders(self) -> list[dict]:
@@ -210,6 +216,10 @@ class AppState:
             )
         snap["protective_orders"] = self.stop_orders()
         snap["pending_orders"] = self.pending_orders()
+        snap["country_allocation"] = self.market_data.country_allocation(snap["positions"])
+        snap["asset_class_allocation"] = self.market_data.asset_class_allocation(
+            snap["positions"]
+        )
         return snap
 
 
@@ -328,6 +338,7 @@ class OptimizeRequest(BaseModel):
     strategy: str = "sma_cross"
     period: str = "5y"
     objective: str = "sharpe"
+    method: str = "grid"
 
 
 @api.post("/optimize")
@@ -341,6 +352,7 @@ def api_optimize(req: OptimizeRequest, request: Request):
             strategy=req.strategy,
             period=req.period,
             objective=req.objective,
+            method=req.method,
         )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

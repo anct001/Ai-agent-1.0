@@ -11,8 +11,46 @@ State persists to data/stops.json. Trailing stops track a high-water mark.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
+
+
+def _held_days(opened_at: str | None) -> float:
+    if not opened_at:
+        return 0.0
+    try:
+        opened = datetime.fromisoformat(opened_at)
+    except ValueError:
+        return 0.0
+    if opened.tzinfo is None:
+        opened = opened.replace(tzinfo=timezone.utc)
+    return max((datetime.now(timezone.utc) - opened).total_seconds() / 86400.0, 0.0)
+
+
+def roi_exit(
+    opened_at: str | None, avg_cost: float, price: float, roi_table: dict
+) -> str | None:
+    """Freqtrade-style time-based ROI. `roi_table` maps held-days thresholds to
+    the minimum profit fraction required to exit at that age, e.g.
+    {0: 0.10, 5: 0.05, 20: 0.02, 60: 0.0} — take 10% immediately, but accept
+    progressively less the longer it's held, and any profit after 60 days."""
+    if not roi_table or avg_cost <= 0:
+        return None
+    # Normalize keys (JSON gives string keys) to {float_days: float_profit}.
+    table = {float(k): float(v) for k, v in roi_table.items()}
+    held = _held_days(opened_at)
+    profit = price / avg_cost - 1
+    for days in sorted(table, reverse=True):
+        if held >= days:
+            required = table[days]
+            if profit >= required:
+                return (
+                    f"ROI target hit ({profit * 100:.1f}% ≥ {required * 100:.1f}% "
+                    f"after {held:.0f}d)"
+                )
+            return None  # matched the age bucket but profit too low
+    return None
 
 
 class StopBook:
@@ -87,25 +125,40 @@ class StopBook:
 
 
 class StopEngine:
-    """Checks every position with a protective order and auto-exits triggers."""
+    """Auto-exits positions on a protective-order trigger or a time-based ROI
+    target. ROI (if a table is configured) applies to *every* position; stop
+    orders apply to positions that have one."""
 
-    def __init__(self, stop_book: StopBook, portfolio, broker, price_fn: Callable[[str], float]):
+    def __init__(
+        self,
+        stop_book: StopBook,
+        portfolio,
+        broker,
+        price_fn: Callable[[str], float],
+        roi_table: dict | None = None,
+    ):
         self.book = stop_book
         self.portfolio = portfolio
         self.broker = broker
         self.price_fn = price_fn
+        self.roi_table = roi_table or {}
 
     def run(self) -> list[dict]:
         """Returns a list of executed protective exits (possibly empty)."""
         executed = []
         for symbol, pos in list(self.portfolio.positions.items()):
-            if symbol not in self.book.orders:
+            has_stop = symbol in self.book.orders
+            if not has_stop and not self.roi_table:
                 continue
             try:
                 price = self.price_fn(symbol)
             except Exception:
                 continue
-            reason = self.book.evaluate(symbol, pos.avg_cost, price)
+            reason = None
+            if self.roi_table:
+                reason = roi_exit(pos.opened_at, pos.avg_cost, price, self.roi_table)
+            if not reason and has_stop:
+                reason = self.book.evaluate(symbol, pos.avg_cost, price)
             if not reason:
                 continue
             qty = pos.qty

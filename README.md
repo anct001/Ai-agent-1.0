@@ -126,6 +126,16 @@ JARVIS now carries a technical-trading layer alongside its LLM reasoning:
   triggered orders on every alert poll and autonomous cycle (re-validating
   buys against the risk gate). Shown on the Overview tab; set them in chat or
   via the `place_limit_order` / `place_oco_order` tools.
+- **Time-based ROI table (Freqtrade `minimal_roi`)** — set `ROI_TABLE` to a
+  `{held_days: min_profit}` map (e.g. take +10% any time, +5% after 5 days,
+  any profit after 60) and the monitor auto-takes-profit on every position
+  once it reaches the age-appropriate target — no per-position setup needed.
+- **Random search** — the optimizer runs grid *or* random search
+  (`--method random`), sampling large parameter spaces with a seed for
+  reproducibility.
+
+The Overview tab also breaks exposure down by **sector, geography (country of
+domicile), and asset class** (equity / ETF / crypto), not just per-symbol.
 
 ## Choosing the AI model (cloud or local)
 
@@ -296,8 +306,9 @@ does **not** yet (an honest gap list, roughly by impact):
 | **Strategy backtesting** | Tick/candle-level, per-trade | Signal-level + allocation-level ✅ | Not tick-level |
 | **Live price feed** | Websocket streaming | Polled quotes (60s cache) | No real-time stream |
 | **Dry-run vs live parity** | Same engine both modes | Separate paper/live brokers | Less battle-tested live path |
-| **Position management** | Per-trade stop-loss/ROI/timeouts | Auto stop-loss/trailing/take-profit ✅ | No time-based ROI tables |
-| **Plotting/analytics** | Detailed per-trade analysis, profit by pair | Equity curve, allocation, sectors | No per-trade attribution |
+| **Position management** | Per-trade stop-loss/ROI/timeouts | Auto stop-loss/trailing/take-profit + time-based ROI table ✅ | Comparable |
+| **Strategy optimization (search)** | Bayesian (Hyperopt) | Grid + random search ✅ | Not Bayesian |
+| **Plotting/analytics** | Detailed per-trade analysis, profit by pair | Equity curve, allocation, sector/geography/asset-class | No per-trade attribution |
 | **Notifications** | Telegram bot (full control + commands) | Telegram bot (chat + approvals) + webhook + email ✅ | Comparable |
 | **Maturity** | Years of production use, large community | New project | Less hardened |
 
@@ -321,15 +332,14 @@ Previously listed gaps now shipped: backtesting, alerts (webhook + email),
 sector exposure, chat persistence, dashboard auth, realistic paper fills,
 Docker, local-model support (Ollama), and the **quant layer — technical
 indicators, stop-loss/trailing/take-profit protective orders, and a
-signal-level strategy backtester, parameter optimization, limit/stop/OCO
-resting orders, crypto execution (CCXT), and a Telegram bot**. Still on the
-list:
+signal-level strategy backtester, parameter optimization (grid + random),
+limit/stop/OCO resting orders, time-based ROI exits, crypto execution (CCXT),
+geography/asset-class exposure, and a Telegram bot**. Still on the list:
 
 - **Tick-level backtesting** — engine is signal/daily-bar level.
-- **Bayesian optimization** — current Hyperopt is grid-search.
+- **Bayesian optimization** — current Hyperopt is grid + random search.
 - **Websocket price streaming** — quotes are polled (60s cache).
-- **Time-based ROI tables** — protective exits, but no time-decay ROI.
-- **Factor/geography exposure** — sector view exists; no factor/regional split.
+- **Factor exposure** — sector/geography/asset-class exist; no factor model.
 - **Multi-user support** — single portfolio, single token, single owner.
 
 ## Disclaimer

@@ -187,6 +187,70 @@ def sector_allocation(positions: list[dict]) -> dict[str, float]:
     return out
 
 
+def asset_class(symbol: str) -> str:
+    """Coarse asset class from the ticker / quote type."""
+    symbol = symbol.upper()
+    if symbol.endswith("-USD") or "/" in symbol:
+        return "Crypto"
+    try:
+        info = _ticker(symbol).info or {}
+    except Exception:
+        return "Equity"
+    qt = (info.get("quoteType") or "").upper()
+    if qt in ("ETF", "MUTUALFUND"):
+        return "ETF / Fund"
+    if qt == "CRYPTOCURRENCY":
+        return "Crypto"
+    if info.get("sector") == "Financial Services" and "bond" in (
+        info.get("longName", "").lower()
+    ):
+        return "Bonds"
+    return "Equity"
+
+
+def get_country(symbol: str) -> str:
+    """Country of domicile, cached on disk (yfinance .info is slow)."""
+    import json
+
+    from ..config import settings
+
+    symbol = symbol.upper()
+    if symbol.endswith("-USD") or "/" in symbol:
+        return "Global / Crypto"
+    cache_path = settings.data_dir / "countries.json"
+    cache = {}
+    if cache_path.exists():
+        try:
+            cache = json.loads(cache_path.read_text())
+        except json.JSONDecodeError:
+            cache = {}
+    if symbol in cache:
+        return cache[symbol]
+    try:
+        country = (_ticker(symbol).info or {}).get("country") or "Unknown"
+    except Exception:
+        return "Unknown"
+    cache[symbol] = country
+    cache_path.write_text(json.dumps(cache, indent=2, sort_keys=True))
+    return country
+
+
+def _aggregate(positions: list[dict], classify) -> dict[str, float]:
+    out: dict[str, float] = {}
+    for pos in positions:
+        key = classify(pos["symbol"])
+        out[key] = round(out.get(key, 0.0) + pos["value"], 2)
+    return out
+
+
+def country_allocation(positions: list[dict]) -> dict[str, float]:
+    return _aggregate(positions, get_country)
+
+
+def asset_class_allocation(positions: list[dict]) -> dict[str, float]:
+    return _aggregate(positions, asset_class)
+
+
 def get_fundamentals(symbol: str) -> dict:
     symbol = symbol.upper()
     try:

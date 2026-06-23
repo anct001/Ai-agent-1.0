@@ -10,6 +10,7 @@ let equityChart = null;
 let allocChart = null;
 let sectorChart = null;
 let btChart = null;
+const donutCharts = {}; // id -> Chart, for the generic breakdown donuts
 
 /* ---------- auth (Bearer token, only enforced when the server has one) ---------- */
 function authHeaders() {
@@ -217,9 +218,38 @@ async function loadPortfolio() {
   renderPositions(p.positions);
   renderAllocation(p);
   renderSectors(p.sector_allocation || {});
+  renderBreakdown("country-chart", "country-empty", p.country_allocation || {});
+  renderBreakdown("assetclass-chart", "assetclass-empty", p.asset_class_allocation || {});
   renderRisk(p.risk_limits);
   renderStops(p.protective_orders || {});
   renderPending(p.pending_orders || []);
+}
+
+function renderBreakdown(canvasId, emptyId, data) {
+  const entries = Object.entries(data);
+  const empty = $("#" + emptyId);
+  const ctx = $("#" + canvasId);
+  if (donutCharts[canvasId]) donutCharts[canvasId].destroy();
+  if (!entries.length) {
+    if (empty) empty.classList.remove("hidden");
+    return;
+  }
+  if (empty) empty.classList.add("hidden");
+  donutCharts[canvasId] = new Chart(ctx, {
+    type: "doughnut",
+    data: {
+      labels: entries.map(([k]) => k),
+      datasets: [{ data: entries.map(([, v]) => v), backgroundColor: PALETTE, borderColor: "#141923", borderWidth: 2 }],
+    },
+    options: {
+      maintainAspectRatio: false,
+      cutout: "62%",
+      plugins: {
+        legend: { position: "right", labels: { color: "#8b97ab", boxWidth: 12 } },
+        tooltip: { callbacks: { label: (c) => ` ${c.label}: ${fmtUsd(c.parsed)}` } },
+      },
+    },
+  });
 }
 
 function renderPending(orders) {

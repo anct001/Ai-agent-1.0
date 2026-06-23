@@ -9,6 +9,7 @@ settings that actually held up rather than guessing. Pure pandas over
 from __future__ import annotations
 
 import itertools
+import random
 
 from .strategy import compute_strategy
 
@@ -49,18 +50,26 @@ def compute_optimization(
     fee_bps: float = 5.0,
     stop_loss_pct: float | None = None,
     top_n: int = 5,
+    method: str = "grid",
+    max_evals: int = 60,
+    seed: int = 0,
 ) -> dict:
     if strategy not in PARAM_GRIDS:
         raise ValueError(f"Unknown strategy {strategy!r}")
     if objective not in OBJECTIVES:
         raise ValueError(f"objective must be one of {sorted(OBJECTIVES)}")
+    if method not in ("grid", "random"):
+        raise ValueError("method must be 'grid' or 'random'")
     grid = grid or PARAM_GRIDS[strategy]
     section, field = OBJECTIVES[objective]
 
+    combos = [p for p in _grid(grid) if _valid(strategy, p)]
+    # Random search samples the space — useful when the grid is large.
+    if method == "random" and len(combos) > max_evals:
+        combos = random.Random(seed).sample(combos, max_evals)
+
     results = []
-    for params in _grid(grid):
-        if not _valid(strategy, params):
-            continue
+    for params in combos:
         try:
             r = compute_strategy(
                 close, strategy, params, fee_bps=fee_bps, stop_loss_pct=stop_loss_pct
@@ -86,6 +95,7 @@ def compute_optimization(
     return {
         "strategy": strategy,
         "objective": objective,
+        "method": method,
         "combinations_tested": len(results),
         "best": results[0],
         "leaderboard": results[:top_n],
@@ -99,6 +109,7 @@ def run_optimize(
     objective: str = "sharpe",
     fee_bps: float = 5.0,
     stop_loss_pct: float | None = None,
+    method: str = "grid",
 ) -> dict:
     """Download history and optimize. Network required."""
     if strategy not in PARAM_GRIDS:
@@ -112,7 +123,7 @@ def run_optimize(
         raise ValueError(f"No price history for {symbol!r}")
     result = compute_optimization(
         hist["Close"], strategy, objective=objective, fee_bps=fee_bps,
-        stop_loss_pct=stop_loss_pct,
+        stop_loss_pct=stop_loss_pct, method=method,
     )
     result["symbol"] = symbol
     result["period"] = period
