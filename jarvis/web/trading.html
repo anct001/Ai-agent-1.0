@@ -276,17 +276,164 @@
         <!-- MARKETS -->
         <section class="section" id="section-markets">
           <div class="section-hdr">
-            <h2>Market Heatmap</h2>
-            <select class="glass-select" id="heatmap-metric">
-              <option value="change">% Change (24h)</option>
-              <option value="volume">Volume</option>
-              <option value="mcap">Market Cap</option>
-            </select>
+            <h2>Market Analysis</h2>
+            <div class="market-meta" id="market-meta">
+              <span class="meta-chip">Tổng vốn: <strong id="total-mcap">$2.81T</strong></span>
+              <span class="meta-chip">BTC Dom: <strong id="btc-dom">52.4%</strong></span>
+              <span class="meta-chip">24h Vol: <strong id="total-vol">$142B</strong></span>
+            </div>
           </div>
-          <div class="heatmap-grid" id="heatmap-grid"></div>
-          <div class="glass movers-card">
-            <h3>Top Movers</h3>
-            <div class="movers-list" id="movers-list"></div>
+
+          <!-- Tab nav -->
+          <div class="market-tabs">
+            <button class="mkt-tab active" data-mkt="heatmap">🗺 Heatmap</button>
+            <button class="mkt-tab" data-mkt="scanner">🔍 Market Scanner</button>
+            <button class="mkt-tab" data-mkt="potential">🎯 AI Potential</button>
+            <button class="mkt-tab" data-mkt="health">💊 Market Health</button>
+          </div>
+
+          <!-- Pane: Heatmap (existing) -->
+          <div class="mkt-pane active" id="mkt-heatmap">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+              <select class="glass-select" id="heatmap-metric" style="width:180px">
+                <option value="change">% Change (24h)</option>
+                <option value="volume">Volume</option>
+                <option value="mcap">Market Cap</option>
+              </select>
+            </div>
+            <div class="heatmap-grid" id="heatmap-grid"></div>
+            <div class="glass movers-card" style="margin-top:14px">
+              <h3>Top Movers</h3>
+              <div class="movers-list" id="movers-list"></div>
+            </div>
+          </div>
+
+          <!-- Pane: Market Scanner -->
+          <div class="mkt-pane" id="mkt-scanner">
+            <div class="scanner-toolbar">
+              <div class="scanner-filters">
+                <button class="sf-btn active" data-sf="all">Tất cả</button>
+                <button class="sf-btn" data-sf="strong_buy">Strong Buy</button>
+                <button class="sf-btn" data-sf="buy">Buy</button>
+                <button class="sf-btn" data-sf="hold">Hold</button>
+                <button class="sf-btn" data-sf="sell">Sell</button>
+              </div>
+              <div class="scanner-search-wrap">
+                <input class="glass-input" id="scanner-search" placeholder="Tìm coin..." style="width:180px;padding:6px 12px" />
+              </div>
+              <div class="scanner-sort-info" id="scanner-sort-info">Sắp xếp: Score ↓</div>
+            </div>
+            <div class="table-scroll" style="max-height:520px">
+              <table class="data-table scanner-table" id="scanner-table">
+                <thead>
+                  <tr>
+                    <th class="sortable" data-col="rank">#</th>
+                    <th class="sortable" data-col="name">Coin</th>
+                    <th class="sortable" data-col="price">Giá</th>
+                    <th class="sortable" data-col="chg24">24h %</th>
+                    <th class="sortable" data-col="chg7">7d %</th>
+                    <th class="sortable" data-col="vol24">Vol 24h</th>
+                    <th class="sortable" data-col="mcap">MCap</th>
+                    <th class="sortable" data-col="rsi">RSI</th>
+                    <th>Trend MTF</th>
+                    <th>AI Signal</th>
+                    <th class="sortable" data-col="score">Score ↓</th>
+                    <th>Phân tích</th>
+                  </tr>
+                </thead>
+                <tbody id="scanner-tbody"></tbody>
+              </table>
+            </div>
+            <div class="scanner-footer" id="scanner-footer">Hiển thị 0 coins</div>
+          </div>
+
+          <!-- Pane: AI Potential -->
+          <div class="mkt-pane" id="mkt-potential">
+            <div class="potential-toolbar">
+              <div class="potential-filters">
+                <button class="pf-btn active" data-pf="all">Tất cả</button>
+                <button class="pf-btn" data-pf="strong_buy">Strong Buy</button>
+                <button class="pf-btn" data-pf="buy">Buy</button>
+                <button class="pf-btn" data-pf="hold">Hold</button>
+              </div>
+              <div class="potential-sort">
+                <select class="glass-select" id="potential-sort" style="width:160px">
+                  <option value="overall">Overall Score</option>
+                  <option value="fundamental">Fundamental</option>
+                  <option value="technical">Technical</option>
+                  <option value="sentiment">Sentiment</option>
+                </select>
+              </div>
+            </div>
+            <div class="potential-grid" id="potential-grid"></div>
+          </div>
+
+          <!-- Pane: Market Health -->
+          <div class="mkt-pane" id="mkt-health">
+            <div class="health-layout">
+              <!-- Left column: key gauges -->
+              <div class="health-col-left">
+                <div class="glass health-card fg-card">
+                  <h3>Fear &amp; Greed Index</h3>
+                  <canvas id="fg-gauge" width="200" height="120"></canvas>
+                  <div class="fg-value" id="fg-value">72</div>
+                  <div class="fg-label" id="fg-label">Greed</div>
+                  <div class="fg-history" id="fg-history"></div>
+                </div>
+
+                <div class="glass health-card">
+                  <h3>Bitcoin Dominance</h3>
+                  <div class="dom-row">
+                    <div class="dom-bar-wrap">
+                      <div class="dom-bar-fill" id="btc-dom-bar" style="width:52.4%"></div>
+                    </div>
+                    <span class="dom-val" id="btc-dom-val">52.4%</span>
+                  </div>
+                  <p class="health-note">ETH: 16.6% · BNB: 3.3% · Others: 27.7%</p>
+                  <div class="dom-trend" id="dom-trend">
+                    <canvas id="dom-chart" height="60"></canvas>
+                  </div>
+                </div>
+
+                <div class="glass health-card">
+                  <h3>Altcoin Season Index</h3>
+                  <div class="altseason-meter">
+                    <div class="altseason-bar">
+                      <div class="altseason-fill" id="altseason-fill" style="width:64%"></div>
+                      <div class="altseason-marker" style="left:75%"></div>
+                    </div>
+                    <div class="altseason-labels">
+                      <span>Bitcoin</span><span>Altcoin Season</span>
+                    </div>
+                  </div>
+                  <p class="health-val" id="altseason-val">64 / 100</p>
+                  <p class="health-note">8/10 altcoins vượt BTC trong 90 ngày</p>
+                </div>
+              </div>
+
+              <!-- Right column: tables & charts -->
+              <div class="health-col-right">
+                <div class="glass health-card">
+                  <h3>Funding Rates</h3>
+                  <div class="table-scroll">
+                    <table class="data-table" id="funding-table">
+                      <thead><tr><th>Coin</th><th>Binance</th><th>Bybit</th><th>OKX</th><th>Trạng thái</th></tr></thead>
+                      <tbody id="funding-tbody"></tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div class="glass health-card">
+                  <h3>On-Chain Signals</h3>
+                  <div class="onchain-grid" id="onchain-grid"></div>
+                </div>
+
+                <div class="glass health-card">
+                  <h3>Macro Regime</h3>
+                  <div id="macro-tiles" class="macro-tiles"></div>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 

@@ -97,7 +97,7 @@ document.querySelectorAll('.menu-item[data-section]').forEach(el => {
 
 function onSectionActivated(name) {
   if (name === 'agents')    renderAgents();
-  if (name === 'markets')   renderHeatmap();
+  if (name === 'markets')   { renderHeatmap(); loadMarketMeta(); }
   if (name === 'reasoning') renderReasoningTimeline();
   if (name === 'trades')    renderTraceFlow();
   if (name === 'risk')      renderRiskCenter();
@@ -1262,6 +1262,730 @@ setInterval(() => {
   const el = document.getElementById('sb-latency');
   if (el) el.textContent = (28 + Math.random() * 20).toFixed(0) + 'ms';
 }, 5000);
+
+/* ════════════════════════════════════════════
+   MARKET ANALYSIS MODULE
+   ════════════════════════════════════════════ */
+
+/* ─── SCANNER DATA (25 coins) ─── */
+const SCANNER_DATA = [
+  { rank:1,  sym:'BTC',   name:'Bitcoin',       emoji:'₿',  price:108240, chg24:2.84,  chg7:8.2,   vol24:42.1,  mcap:2100, rsi:62, mtf:['up','up','up'],    signal:'buy',        score:82, sector:'Layer1' },
+  { rank:2,  sym:'ETH',   name:'Ethereum',      emoji:'Ξ',  price:3890,   chg24:1.62,  chg7:5.8,   vol24:18.4,  mcap:467,  rsi:58, mtf:['up','up','up'],    signal:'buy',        score:77, sector:'Layer1' },
+  { rank:3,  sym:'BNB',   name:'BNB',           emoji:'🔶', price:628,    chg24:0.84,  chg7:3.1,   vol24:2.8,   mcap:92,   rsi:54, mtf:['up','neu','up'],   signal:'hold',       score:61, sector:'Exchange' },
+  { rank:4,  sym:'SOL',   name:'Solana',        emoji:'◎',  price:168,    chg24:-0.74, chg7:-2.4,  vol24:5.2,   mcap:78,   rsi:44, mtf:['down','neu','up'], signal:'hold',       score:48, sector:'Layer1' },
+  { rank:5,  sym:'XRP',   name:'XRP',           emoji:'✕',  price:0.584,  chg24:-1.24, chg7:4.2,   vol24:3.1,   mcap:71,   rsi:49, mtf:['neu','up','up'],   signal:'hold',       score:55, sector:'Payment' },
+  { rank:6,  sym:'DOGE',  name:'Dogecoin',      emoji:'🐕', price:0.142,  chg24:3.12,  chg7:12.4,  vol24:2.2,   mcap:42,   rsi:71, mtf:['up','up','neu'],   signal:'hold',       score:58, sector:'Meme' },
+  { rank:7,  sym:'ADA',   name:'Cardano',       emoji:'₳',  price:0.478,  chg24:-0.45, chg7:-1.8,  vol24:0.8,   mcap:19,   rsi:41, mtf:['down','down','neu'],'signal':'sell',    score:34, sector:'Layer1' },
+  { rank:8,  sym:'AVAX',  name:'Avalanche',     emoji:'🔺', price:39.8,   chg24:1.92,  chg7:8.7,   vol24:0.72,  mcap:18,   rsi:63, mtf:['up','up','up'],    signal:'strong_buy', score:87, sector:'Layer1' },
+  { rank:9,  sym:'LINK',  name:'Chainlink',     emoji:'⬡',  price:15.4,   chg24:4.38,  chg7:14.2,  vol24:0.64,  mcap:11,   rsi:66, mtf:['up','up','up'],    signal:'strong_buy', score:91, sector:'Oracle' },
+  { rank:10, sym:'DOT',   name:'Polkadot',      emoji:'●',  price:8.12,   chg24:-2.15, chg7:-5.4,  vol24:0.44,  mcap:12,   rsi:37, mtf:['down','down','down'],'signal':'sell',   score:28, sector:'Layer0' },
+  { rank:11, sym:'MATIC', name:'Polygon',       emoji:'⬡',  price:0.574,  chg24:-1.88, chg7:-3.2,  vol24:0.52,  mcap:9,    rsi:39, mtf:['down','neu','neu'], signal:'sell',      score:32, sector:'Layer2' },
+  { rank:12, sym:'UNI',   name:'Uniswap',       emoji:'🦄', price:9.84,   chg24:2.07,  chg7:6.8,   vol24:0.38,  mcap:8,    rsi:60, mtf:['up','up','neu'],   signal:'buy',        score:72, sector:'DeFi' },
+  { rank:13, sym:'APT',   name:'Aptos',         emoji:'🅰',  price:11.2,   chg24:5.21,  chg7:18.4,  vol24:0.48,  mcap:4.5,  rsi:74, mtf:['up','up','up'],    signal:'strong_buy', score:89, sector:'Layer1' },
+  { rank:14, sym:'ARB',   name:'Arbitrum',      emoji:'🔵', price:0.892,  chg24:3.44,  chg7:9.8,   vol24:0.56,  mcap:3.8,  rsi:65, mtf:['up','up','neu'],   signal:'buy',        score:74, sector:'Layer2' },
+  { rank:15, sym:'OP',    name:'Optimism',      emoji:'🔴', price:1.42,   chg24:2.78,  chg7:7.2,   vol24:0.31,  mcap:2.8,  rsi:60, mtf:['up','neu','up'],   signal:'buy',        score:69, sector:'Layer2' },
+  { rank:16, sym:'INJ',   name:'Injective',     emoji:'⚡', price:28.4,   chg24:6.14,  chg7:22.1,  vol24:0.42,  mcap:2.4,  rsi:78, mtf:['up','up','up'],    signal:'strong_buy', score:93, sector:'DeFi' },
+  { rank:17, sym:'SUI',   name:'Sui',           emoji:'💧', price:4.12,   chg24:4.88,  chg7:15.6,  vol24:0.58,  mcap:3.2,  rsi:72, mtf:['up','up','up'],    signal:'strong_buy', score:88, sector:'Layer1' },
+  { rank:18, sym:'WIF',   name:'dogwifhat',     emoji:'🐕', price:2.84,   chg24:8.42,  chg7:28.4,  vol24:0.88,  mcap:2.8,  rsi:82, mtf:['up','up','up'],    signal:'hold',       score:62, sector:'Meme' },
+  { rank:19, sym:'TIA',   name:'Celestia',      emoji:'🌌', price:6.84,   chg24:2.12,  chg7:9.4,   vol24:0.22,  mcap:1.4,  rsi:61, mtf:['up','up','neu'],   signal:'buy',        score:71, sector:'Modular' },
+  { rank:20, sym:'JUP',   name:'Jupiter',       emoji:'🪐', price:0.842,  chg24:1.84,  chg7:4.8,   vol24:0.18,  mcap:1.1,  rsi:55, mtf:['up','neu','up'],   signal:'buy',        score:67, sector:'DeFi' },
+  { rank:21, sym:'ATOM',  name:'Cosmos',        emoji:'⚛',  price:8.84,   chg24:-0.33, chg7:-0.8,  vol24:0.24,  mcap:7,    rsi:48, mtf:['neu','neu','down'],'signal':'hold',    score:43, sector:'Layer0' },
+  { rank:22, sym:'LTC',   name:'Litecoin',      emoji:'Ł',  price:92.4,   chg24:0.95,  chg7:1.8,   vol24:0.44,  mcap:6,    rsi:51, mtf:['neu','neu','up'],  signal:'hold',       score:49, sector:'Payment' },
+  { rank:23, sym:'ICP',   name:'Internet Comp', emoji:'∞',  price:12.8,   chg24:-3.44, chg7:-8.4,  vol24:0.18,  mcap:5,    rsi:32, mtf:['down','down','down'],'signal':'strong_sell',score:18, sector:'Web3' },
+  { rank:24, sym:'FIL',   name:'Filecoin',      emoji:'📁', price:5.84,   chg24:-1.24, chg7:-3.8,  vol24:0.14,  mcap:3.2,  rsi:38, mtf:['down','down','neu'],'signal':'sell',   score:30, sector:'Storage' },
+  { rank:25, sym:'NEAR',  name:'NEAR Protocol', emoji:'Ⓝ',  price:4.82,   chg24:1.44,  chg7:5.2,   vol24:0.28,  mcap:4.8,  rsi:57, mtf:['up','neu','up'],   signal:'buy',        score:68, sector:'Layer1' },
+];
+
+/* ─── AI POTENTIAL DATA ─── */
+const POTENTIAL_DATA = [
+  { sym:'LINK', name:'Chainlink',   emoji:'⬡',  price:15.4,  signal:'strong_buy', overall:91,
+    fundamental:82, technical:94, sentiment:88, onchain:90, macro:85,
+    target7d:17.2,  target30d:22.4, target90d:32.0,
+    downside:-12, confidence:88,
+    catalysts:['Oracles cần thiết cho DeFi AI', 'Volume tăng 4 tuần liên tiếp', 'Tích hợp 20+ blockchain mới', 'Whale tích lũy 2.1M LINK'],
+    risks:['Cạnh tranh từ Pyth Network', 'Phụ thuộc ETH ecosystem'],
+    key_level_sup:14.8, key_level_res:18.0,
+    summary:'LINK đang trong uptrend mạnh nhờ nhu cầu oracle bùng nổ từ AI + DeFi. Golden Cross trên 1D.'
+  },
+  { sym:'INJ',  name:'Injective',   emoji:'⚡', price:28.4,  signal:'strong_buy', overall:93,
+    fundamental:90, technical:91, sentiment:94, onchain:95, macro:80,
+    target7d:34.0,  target30d:45.0, target90d:68.0,
+    downside:-15, confidence:86,
+    catalysts:['TVL tăng 380% QoQ', 'DEX volume $1.2B/ngày', 'Midas RWA protocol launch', 'Venom partnership'],
+    risks:['Thị trường DeFi còn non trẻ', 'Tokenomics inflation 2024'],
+    key_level_sup:26.0, key_level_res:32.0,
+    summary:'INJ là DeFi hub lớn nhất Cosmos. On-chain metrics bullish mạnh với volume DEX kỷ lục.'
+  },
+  { sym:'APT',  name:'Aptos',       emoji:'🅰',  price:11.2,  signal:'strong_buy', overall:89,
+    fundamental:84, technical:88, sentiment:86, onchain:82, macro:78,
+    target7d:13.5,  target30d:18.0, target90d:28.0,
+    downside:-18, confidence:82,
+    catalysts:['Daily active users tăng 45%', 'DeFi TVL $1.8B (+120%)', 'Microsoft AI partnership', 'Ecosystem fund $200M'],
+    risks:['Vesting schedule áp lực bán', 'Competition từ SUI'],
+    key_level_sup:10.5, key_level_res:13.0,
+    summary:'Aptos hưởng lợi từ làn sóng Layer1 mới với TPS cao và Move language adoption tăng nhanh.'
+  },
+  { sym:'SUI',  name:'Sui',         emoji:'💧', price:4.12,  signal:'strong_buy', overall:88,
+    fundamental:85, technical:86, sentiment:90, onchain:88, macro:76,
+    target7d:4.9,   target30d:6.8,  target90d:10.5,
+    downside:-20, confidence:80,
+    catalysts:['Gaming ecosystem bùng nổ', 'zkLogin giúp mass adoption', 'Grayscale listing rumor', 'TVL $2.4B'],
+    risks:['Token unlock tháng tới', 'Còn sớm trong chu kỳ'],
+    key_level_sup:3.85, key_level_res:4.80,
+    summary:'SUI có fundamentals mạnh nhất trong nhóm Move-based chains. DeFi và Gaming đều tăng trưởng tốt.'
+  },
+  { sym:'AVAX', name:'Avalanche',   emoji:'🔺', price:39.8,  signal:'strong_buy', overall:87,
+    fundamental:88, technical:84, sentiment:82, onchain:86, macro:88,
+    target7d:46.0,  target30d:62.0, target90d:85.0,
+    downside:-14, confidence:84,
+    catalysts:['Subnet tăng lên 100+', 'Evergreen Subnets ra mắt', 'BlackRock tokenization', 'Institutional adoption'],
+    risks:['Gas fee cao hơn L2s', 'AVAX unlock schedule'],
+    key_level_sup:37.5, key_level_res:44.0,
+    summary:'AVAX được hưởng lợi lớn từ RWA tokenization trend và institutional blockchain adoption.'
+  },
+  { sym:'ARB',  name:'Arbitrum',    emoji:'🔵', price:0.892, signal:'buy',        overall:74,
+    fundamental:80, technical:70, sentiment:76, onchain:72, macro:80,
+    target7d:1.02,  target30d:1.35, target90d:2.10,
+    downside:-22, confidence:72,
+    catalysts:['TVL #1 L2 $18B', 'Orbit chains ecosystem', 'Gaming dApps explosion', 'DAO treasury active'],
+    risks:['OP Stack cạnh tranh', 'Token unlock pressure'],
+    key_level_sup:0.82, key_level_res:1.05,
+    summary:'ARB dẫn đầu L2 về TVL nhưng đang consolidate. Breakout trên $1.05 xác nhận uptrend tiếp.'
+  },
+  { sym:'BTC',  name:'Bitcoin',     emoji:'₿',  price:108240, signal:'buy',       overall:82,
+    fundamental:95, technical:82, sentiment:78, onchain:88, macro:86,
+    target7d:115000,target30d:128000, target90d:148000,
+    downside:-10, confidence:85,
+    catalysts:['ETF net inflow $320M/ngày', 'Halving cycle Q4 2024', 'MicroStrategy mua thêm 15k BTC', 'Fed pivot signal'],
+    risks:['RSI cận overbought', 'Macro uncertainty'],
+    key_level_sup:104000, key_level_res:115000,
+    summary:'BTC đang trong post-halving bull cycle. Institutional demand qua ETFs cực mạnh với inflow kỷ lục.'
+  },
+  { sym:'ETH',  name:'Ethereum',    emoji:'Ξ',  price:3890,   signal:'buy',       overall:77,
+    fundamental:92, technical:76, sentiment:72, onchain:80, macro:84,
+    target7d:4200,  target30d:5200, target90d:7500,
+    downside:-14, confidence:78,
+    catalysts:['ETH ETF approval incoming', 'Pectra upgrade roadmap', 'L2 ecosystem TVL $50B+', 'Deflationary since Merge'],
+    risks:['Còn thấp hơn ATH 2021', 'ETH/BTC ratio giảm'],
+    key_level_sup:3700, key_level_res:4400,
+    summary:'ETH fundamentals rất mạnh với network revenue và deflationary model. ETF catalyst sắp tới.'
+  },
+  { sym:'UNI',  name:'Uniswap',     emoji:'🦄', price:9.84,   signal:'buy',       overall:72,
+    fundamental:78, technical:70, sentiment:68, onchain:75, macro:75,
+    target7d:11.2,  target30d:14.5, target90d:20.0,
+    downside:-25, confidence:68,
+    catalysts:['Uniswap v4 launch', 'Fee switch vote', 'UniswapX adoption', 'Protocol revenue ATH'],
+    risks:['Regulatory uncertainty', 'DEX competition'],
+    key_level_sup:9.20, key_level_res:11.50,
+    summary:'UNI recovery mạnh sau SEC pressure giảm. V4 hooks sẽ mở ra revenue streams mới cho protocol.'
+  },
+  { sym:'SOL',  name:'Solana',      emoji:'◎',  price:168,    signal:'hold',      overall:55,
+    fundamental:82, technical:48, sentiment:52, onchain:58, macro:80,
+    target7d:172,   target30d:195, target90d:240,
+    downside:-22, confidence:58,
+    catalysts:['Meme coin ecosystem', 'Firedancer client sắp launch', 'DePIN growth', 'Jupiter DEX dominance'],
+    risks:['Correction sau rally mạnh', 'Network downtime lịch sử'],
+    key_level_sup:155, key_level_res:185,
+    summary:'SOL đang consolidate sau rally từ $25. Cần breakout $185 để xác nhận uptrend tiếp tục.'
+  },
+  { sym:'DOT',  name:'Polkadot',    emoji:'●',  price:8.12,   signal:'sell',      overall:30,
+    fundamental:60, technical:28, sentiment:32, onchain:30, macro:50,
+    target7d:7.5,   target30d:6.8,  target90d:8.5,
+    downside:-35, confidence:65,
+    catalysts:['Parachain ecosystem', 'JAM upgrade'],
+    risks:['Death cross trên 1D', 'Volume giảm liên tục', 'Ecosystem migration sang Polkadot 2.0'],
+    key_level_sup:7.80, key_level_res:9.00,
+    summary:'DOT trong downtrend rõ ràng với death cross và volume thấp. Chờ xác nhận đáy trước khi entry.'
+  },
+  { sym:'ICP',  name:'ICP',         emoji:'∞',  price:12.8,   signal:'sell',      overall:18,
+    fundamental:40, technical:18, sentiment:20, onchain:15, macro:45,
+    target7d:11.5,  target30d:10.2, target90d:9.0,
+    downside:-42, confidence:72,
+    catalysts:['DFINITY grants', 'AI compute potential'],
+    risks:['Tokenomics rất xấu', 'Mint rate cao', 'Bearish momentum mạnh', 'Volume sụt giảm'],
+    key_level_sup:12.0, key_level_res:14.5,
+    summary:'ICP có tokenomics áp lực bán liên tục. Technical bearish mạnh. Tránh entry trong thời điểm này.'
+  },
+];
+
+/* ─── MARKET HEALTH DATA ─── */
+const FUNDING_DATA = [
+  { sym:'BTC',  binance: 0.0142, bybit: 0.0138, okx: 0.0145 },
+  { sym:'ETH',  binance: 0.0094, bybit: 0.0091, okx: 0.0098 },
+  { sym:'SOL',  binance:-0.0012, bybit:-0.0018, okx: 0.0004 },
+  { sym:'BNB',  binance: 0.0052, bybit: 0.0048, okx: 0.0055 },
+  { sym:'AVAX', binance: 0.0224, bybit: 0.0218, okx: 0.0228 },
+  { sym:'LINK', binance: 0.0312, bybit: 0.0298, okx: 0.0318 },
+  { sym:'INJ',  binance: 0.0418, bybit: 0.0404, okx: 0.0424 },
+  { sym:'APT',  binance: 0.0188, bybit: 0.0182, okx: 0.0192 },
+];
+
+const ONCHAIN_DATA = [
+  { label:'Whale Flows (24h)',  val:'+$1.8B', trend:'+12%', up:true  },
+  { label:'Exchange Outflow',   val:'-12,400 BTC', trend:'Bullish', up:true  },
+  { label:'Active Addresses',   val:'1.24M',   trend:'+8.4%', up:true  },
+  { label:'Stablecoin Supply',  val:'$184B',   trend:'+2.1%', up:true  },
+  { label:'Miner Revenue',      val:'$48.2M',  trend:'+5.8%', up:true  },
+  { label:'Open Interest',      val:'$42.8B',  trend:'+18%',  up:true  },
+  { label:'Liquidations (24h)', val:'$284M',   trend:'Longs 68%', up:false },
+  { label:'Long/Short Ratio',   val:'1.42',    trend:'Bullish', up:true  },
+];
+
+const MACRO_TILES_DATA = [
+  { name:'Fed Rate',      val:'5.25–5.50%',  cls:'neutral' },
+  { name:'US CPI',        val:'3.2%',         cls:'neutral' },
+  { name:'DXY Index',     val:'104.2 ↘',      cls:'bullish' },
+  { name:'Gold',          val:'$2,412 ↗',     cls:'bullish' },
+  { name:'VIX',           val:'14.8 (Low)',    cls:'bullish' },
+  { name:'10Y Treasury',  val:'4.48%',         cls:'neutral' },
+  { name:'S&P 500',       val:'+1.2%',         cls:'bullish' },
+  { name:'Oil (WTI)',     val:'$78.4',         cls:'neutral' },
+];
+
+const FG_HISTORY = [
+  { day:'T2', val:64 }, { day:'T3', val:68 }, { day:'T4', val:71 },
+  { day:'T5', val:69 }, { day:'T6', val:74 }, { day:'T7', val:76 },
+  { day:'CN', val:72 },
+];
+
+/* ─── MARKET TABS LOGIC ─── */
+document.querySelectorAll('.mkt-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.mkt-tab').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.mkt-pane').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    const pane = document.getElementById('mkt-' + btn.dataset.mkt);
+    if (pane) pane.classList.add('active');
+
+    // Lazy-render each pane
+    if (btn.dataset.mkt === 'scanner')   renderScanner();
+    if (btn.dataset.mkt === 'potential') renderPotential();
+    if (btn.dataset.mkt === 'health')    renderMarketHealth();
+    if (btn.dataset.mkt === 'heatmap')   renderHeatmap();
+  });
+});
+
+/* ─── SCANNER ─── */
+let scannerSort = { col: 'score', dir: 'desc' };
+let scannerFilter = 'all';
+let scannerSearch = '';
+let scannerInitialized = false;
+
+function signalLabel(s) {
+  const m = { strong_buy:'Strong Buy', buy:'Buy', hold:'Hold', sell:'Sell', strong_sell:'Strong Sell' };
+  return m[s] || s;
+}
+
+function scoreColor(n) {
+  if (n >= 80) return 'var(--success)';
+  if (n >= 60) return '#22d3ee';
+  if (n >= 40) return 'var(--warning)';
+  return 'var(--danger)';
+}
+
+function rsiClass(r) {
+  if (r >= 70) return 'rsi-ob';
+  if (r <= 30) return 'rsi-os';
+  return 'rsi-neu';
+}
+
+function mtfDots(mtf) {
+  const c = { up:'var(--success)', neu:'var(--warning)', down:'var(--danger)' };
+  const l = ['1H', '4H', '1D'];
+  return mtf.map((d, i) => `<span class="mtf-dot" style="background:${c[d]}" title="${l[i]}: ${d.toUpperCase()}"></span>`).join('');
+}
+
+function formatVol(n) { return n >= 10 ? n.toFixed(0) + 'B' : n.toFixed(2) + 'B'; }
+function formatMcap(n) { return n >= 1000 ? (n/1000).toFixed(2) + 'T' : n.toFixed(0) + 'B'; }
+function formatScanPrice(n) {
+  if (n >= 1000) return '$' + n.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  if (n >= 1)    return '$' + n.toFixed(2);
+  return '$' + n.toFixed(4);
+}
+
+function getFilteredScanner() {
+  return SCANNER_DATA.filter(c => {
+    const matchFilter = scannerFilter === 'all' || c.signal === scannerFilter;
+    const matchSearch = !scannerSearch || c.sym.toLowerCase().includes(scannerSearch) || c.name.toLowerCase().includes(scannerSearch);
+    return matchFilter && matchSearch;
+  }).sort((a, b) => {
+    const v = (x) => x[scannerSort.col] ?? 0;
+    return scannerSort.dir === 'desc' ? v(b) - v(a) : v(a) - v(b);
+  });
+}
+
+function renderScanner() {
+  const tbody = document.getElementById('scanner-tbody');
+  if (!tbody) return;
+
+  const rows = getFilteredScanner();
+  document.getElementById('scanner-footer').textContent = `Hiển thị ${rows.length} / ${SCANNER_DATA.length} coins`;
+
+  tbody.innerHTML = rows.map(c => {
+    const chg24Cls = c.chg24 >= 0 ? 'up' : 'down';
+    const chg7Cls  = c.chg7  >= 0 ? 'up' : 'down';
+    const scColor  = scoreColor(c.score);
+    return `
+      <tr>
+        <td style="color:var(--muted)">#${c.rank}</td>
+        <td>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:16px">${c.emoji}</span>
+            <div>
+              <div style="font-weight:700">${c.sym}</div>
+              <div style="font-size:10px;color:var(--muted)">${c.sector}</div>
+            </div>
+          </div>
+        </td>
+        <td style="font-weight:600">${formatScanPrice(c.price)}</td>
+        <td class="${chg24Cls}">${c.chg24 > 0 ? '+' : ''}${c.chg24.toFixed(2)}%</td>
+        <td class="${chg7Cls}">${c.chg7 > 0 ? '+' : ''}${c.chg7.toFixed(2)}%</td>
+        <td style="color:var(--text-dim)">$${formatVol(c.vol24)}</td>
+        <td style="color:var(--text-dim)">$${formatMcap(c.mcap)}</td>
+        <td class="rsi-cell ${rsiClass(c.rsi)}">${c.rsi}</td>
+        <td><div class="mtf-cell">${mtfDots(c.mtf)}</div></td>
+        <td><span class="signal-badge ${c.signal}">${signalLabel(c.signal)}</span></td>
+        <td>
+          <div class="score-cell">
+            <div class="score-bar-wrap"><div class="score-bar-fill" style="width:${c.score}%;background:${scColor}"></div></div>
+            <span class="score-num" style="color:${scColor}">${c.score}</span>
+          </div>
+        </td>
+        <td><button class="btn-analyze" onclick="openCoinDetail('${c.sym}')">Phân tích</button></td>
+      </tr>`;
+  }).join('');
+
+  if (!scannerInitialized) {
+    initScannerControls();
+    scannerInitialized = true;
+  }
+}
+
+function initScannerControls() {
+  // Filter buttons
+  document.querySelectorAll('.sf-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.sf-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      scannerFilter = btn.dataset.sf;
+      renderScanner();
+    });
+  });
+
+  // Search
+  document.getElementById('scanner-search')?.addEventListener('input', (e) => {
+    scannerSearch = e.target.value.toLowerCase();
+    renderScanner();
+  });
+
+  // Sortable headers
+  document.querySelectorAll('.scanner-table th.sortable').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (scannerSort.col === col) {
+        scannerSort.dir = scannerSort.dir === 'desc' ? 'asc' : 'desc';
+      } else {
+        scannerSort.col = col;
+        scannerSort.dir = 'desc';
+      }
+      document.querySelectorAll('.scanner-table th').forEach(h => h.classList.remove('sort-asc', 'sort-desc'));
+      th.classList.add(scannerSort.dir === 'desc' ? 'sort-desc' : 'sort-asc');
+      document.getElementById('scanner-sort-info').textContent = `Sắp xếp: ${col} ${scannerSort.dir === 'desc' ? '↓' : '↑'}`;
+      renderScanner();
+    });
+  });
+}
+
+/* ─── AI POTENTIAL ─── */
+let potentialFilter = 'all';
+let potentialSort   = 'overall';
+let potentialInitialized = false;
+
+function ringPath(score, r = 15.9155) {
+  const circ = 2 * Math.PI * r;
+  const fill = (score / 100) * circ;
+  return `${fill.toFixed(2)} ${(circ - fill).toFixed(2)}`;
+}
+
+function dimColor(v) {
+  if (v >= 80) return 'var(--success)';
+  if (v >= 60) return 'var(--primary)';
+  if (v >= 40) return 'var(--warning)';
+  return 'var(--danger)';
+}
+
+function renderPotential() {
+  const grid = document.getElementById('potential-grid');
+  if (!grid) return;
+
+  const rows = POTENTIAL_DATA.filter(c =>
+    potentialFilter === 'all' || c.signal === potentialFilter ||
+    (potentialFilter === 'strong_buy' && c.signal === 'strong_buy') ||
+    (potentialFilter === 'buy' && c.signal === 'buy') ||
+    (potentialFilter === 'hold' && c.signal === 'hold')
+  ).sort((a, b) => b[potentialSort] - a[potentialSort]);
+
+  grid.innerHTML = rows.map(c => {
+    const sc  = c.overall;
+    const sc2 = dimColor(sc);
+    const ringSVG = (v, col) => `
+      <svg class="score-ring-svg" viewBox="0 0 36 36">
+        <path class="ring-bg"   d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"/>
+        <path class="ring-fill" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831"
+              style="stroke:${col};stroke-dasharray:${ringPath(v)}" />
+        <text x="18" y="21" text-anchor="middle" fill="${col}" font-size="9" font-weight="700">${v}</text>
+      </svg>`;
+
+    const targetFmt = (t) => typeof t === 'number' && t > 100 ? '$' + t.toLocaleString('en-US', {maximumFractionDigits:0}) : '$' + t.toFixed(3).replace(/\.?0+$/, '');
+
+    return `
+      <div class="potential-card glass ${c.signal}" onclick="openPotentialDetail('${c.sym}')">
+        <div class="pc-header">
+          <div class="pc-icon">${c.emoji}</div>
+          <div class="pc-info">
+            <div class="pc-name">${c.sym} <span style="font-size:12px;font-weight:400;color:var(--text-dim)">${c.name}</span></div>
+            <div class="pc-price">${formatScanPrice(c.price)}</div>
+          </div>
+          <div style="text-align:center">
+            ${ringSVG(sc, sc2)}
+            <div style="font-size:10px;color:var(--muted);margin-top:2px">Overall</div>
+          </div>
+        </div>
+
+        <span class="signal-badge ${c.signal}" style="width:fit-content">${signalLabel(c.signal)}</span>
+
+        <div class="pc-dims">
+          ${[['Fundamental', c.fundamental], ['Technical', c.technical], ['Sentiment', c.sentiment], ['On-Chain', c.onchain]].map(([l, v]) => `
+            <div class="dim-row">
+              <span class="dim-label">${l}</span>
+              <div class="dim-bar"><div class="dim-fill" style="width:${v}%;background:${dimColor(v)}"></div></div>
+              <span class="dim-val" style="color:${dimColor(v)}">${v}</span>
+            </div>`).join('')}
+        </div>
+
+        <div class="pc-targets">
+          <div style="font-size:10px;color:var(--muted);margin-bottom:6px">Mục tiêu giá</div>
+          <div class="targets-row">
+            <div class="tgt-item">
+              <div class="tgt-label">7 ngày</div>
+              <div class="tgt-price up">${targetFmt(c.target7d)}</div>
+            </div>
+            <div class="tgt-item">
+              <div class="tgt-label">Hiện tại</div>
+              <div class="tgt-price">${formatScanPrice(c.price)}</div>
+            </div>
+            <div class="tgt-item">
+              <div class="tgt-label">30 ngày</div>
+              <div class="tgt-price up">${targetFmt(c.target30d)}</div>
+            </div>
+            <div class="tgt-item">
+              <div class="tgt-label">90 ngày</div>
+              <div class="tgt-price up">${targetFmt(c.target90d)}</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="pc-catalysts">
+          ${c.catalysts.slice(0,3).map(cat => `<span class="catalyst-tag">${cat}</span>`).join('')}
+        </div>
+
+        <div style="font-size:11px;color:var(--text-dim);line-height:1.55">${c.summary}</div>
+      </div>`;
+  }).join('');
+
+  if (!potentialInitialized) {
+    document.querySelectorAll('.pf-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.pf-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        potentialFilter = btn.dataset.pf;
+        renderPotential();
+      });
+    });
+    document.getElementById('potential-sort')?.addEventListener('change', (e) => {
+      potentialSort = e.target.value;
+      renderPotential();
+    });
+    potentialInitialized = true;
+  }
+}
+
+/* ─── MARKET HEALTH ─── */
+let healthInitialized = false;
+
+function drawFearGreedGauge(val) {
+  const canvas = document.getElementById('fg-gauge');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  const cx = W / 2, cy = H - 10, r = H - 20;
+  const startAngle = Math.PI;
+  const endAngle   = 0;
+
+  // Background arc
+  ctx.beginPath();
+  ctx.arc(cx, cy, r, startAngle, endAngle);
+  ctx.lineWidth = 18;
+
+  const grad = ctx.createLinearGradient(cx - r, 0, cx + r, 0);
+  grad.addColorStop(0,   '#EF4444');
+  grad.addColorStop(0.25,'#F59E0B');
+  grad.addColorStop(0.5, '#EAB308');
+  grad.addColorStop(0.75,'#22C55E');
+  grad.addColorStop(1,   '#16A34A');
+  ctx.strokeStyle = grad;
+  ctx.stroke();
+
+  // Needle
+  const angle = startAngle + (val / 100) * Math.PI;
+  const nLen = r - 10;
+  ctx.beginPath();
+  ctx.moveTo(cx, cy);
+  ctx.lineTo(
+    cx + nLen * Math.cos(angle),
+    cy + nLen * Math.sin(angle)
+  );
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.stroke();
+
+  // Center dot
+  ctx.beginPath();
+  ctx.arc(cx, cy, 5, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff';
+  ctx.fill();
+
+  // Labels
+  ctx.font = '10px sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,0.5)';
+  ctx.textAlign = 'left';  ctx.fillText('Sợ',  8,  cy - 2);
+  ctx.textAlign = 'right'; ctx.fillText('Tham', W - 8, cy - 2);
+}
+
+function renderMarketHealth() {
+  if (healthInitialized) return;
+  healthInitialized = true;
+
+  // Fear & Greed gauge
+  const fgVal = 72;
+  drawFearGreedGauge(fgVal);
+
+  // F&G history bars
+  const hist = document.getElementById('fg-history');
+  if (hist) {
+    hist.innerHTML = FG_HISTORY.map(d => {
+      const h = Math.round(d.val * 0.45);
+      const col = d.val >= 60 ? 'var(--success)' : d.val >= 40 ? 'var(--warning)' : 'var(--danger)';
+      return `<div class="fg-day">
+        <div class="fg-day-bar" style="height:${h}px;background:${col};opacity:0.8"></div>
+        <div class="fg-day-lbl">${d.day}</div>
+      </div>`;
+    }).join('');
+  }
+
+  // BTC dominance mini chart
+  const domCanvas = document.getElementById('dom-chart');
+  if (domCanvas) {
+    const ctx = domCanvas.getContext('2d');
+    const domHistory = [49.2, 50.1, 51.4, 51.8, 52.0, 51.6, 52.4];
+    const w = domCanvas.width || domCanvas.parentElement.clientWidth;
+    const h = 60;
+    domCanvas.width = w; domCanvas.height = h;
+    const min = Math.min(...domHistory) - 1, max = Math.max(...domHistory) + 1;
+    ctx.beginPath();
+    domHistory.forEach((v, i) => {
+      const x = (i / (domHistory.length - 1)) * w;
+      const y = h - ((v - min) / (max - min)) * (h - 4) - 2;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    });
+    ctx.strokeStyle = 'var(--primary)';
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+
+  // Funding rates table
+  const fundingTbody = document.getElementById('funding-tbody');
+  if (fundingTbody) {
+    fundingTbody.innerHTML = FUNDING_DATA.map(f => {
+      const fmt = (v) => `<span class="${v > 0.01 ? 'funding-pos' : v < -0.005 ? 'funding-neg' : 'funding-neu'}">${v > 0 ? '+' : ''}${(v * 100).toFixed(4)}%</span>`;
+      const avg = (f.binance + f.bybit + f.okx) / 3;
+      const status = avg > 0.015 ? '<span class="signal-badge buy" style="font-size:10px">Bullish</span>'
+                   : avg < 0 ? '<span class="signal-badge sell" style="font-size:10px">Bearish</span>'
+                   : '<span class="signal-badge hold" style="font-size:10px">Neutral</span>';
+      return `<tr>
+        <td><strong>${f.sym}</strong></td>
+        <td>${fmt(f.binance)}</td>
+        <td>${fmt(f.bybit)}</td>
+        <td>${fmt(f.okx)}</td>
+        <td>${status}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // On-chain grid
+  const ocGrid = document.getElementById('onchain-grid');
+  if (ocGrid) {
+    ocGrid.innerHTML = ONCHAIN_DATA.map(d => `
+      <div class="onchain-item">
+        <div class="oc-label">${d.label}</div>
+        <div class="oc-val ${d.up ? 'up' : 'down'}">${d.val}</div>
+        <div class="oc-trend" style="color:${d.up ? 'var(--success)' : 'var(--danger)'}">${d.trend}</div>
+      </div>`).join('');
+  }
+
+  // Macro tiles (try API first)
+  const macroEl = document.getElementById('macro-tiles');
+  if (macroEl) {
+    const renderMacroTiles = (data) => {
+      macroEl.innerHTML = data.map(t => `
+        <div class="macro-tile ${escapeHtml(t.cls)}">
+          <div class="mt-name">${escapeHtml(t.name)}</div>
+          <div class="mt-val">${escapeHtml(String(t.val))}</div>
+        </div>`).join('');
+    };
+    renderMacroTiles(MACRO_TILES_DATA);
+
+    apiJson('/api/macro').then(d => {
+      if (!d || typeof d !== 'object') return;
+      const tiles = Object.entries(d).slice(0, 8).map(([k, v]) => ({
+        name: k.replace(/_/g, ' '),
+        val: typeof v === 'number' ? v.toFixed(2) : String(v),
+        cls: 'neutral',
+      }));
+      if (tiles.length) renderMacroTiles(tiles);
+    }).catch(() => {});
+  }
+}
+
+/* ─── COIN DETAIL MODAL ─── */
+window.openCoinDetail = function (sym) {
+  const coin = SCANNER_DATA.find(c => c.sym === sym);
+  const pot  = POTENTIAL_DATA.find(c => c.sym === sym);
+  if (!coin) return;
+
+  const chgClass = coin.chg24 >= 0 ? 'up' : 'down';
+  const supportLevels = pot ? [
+    { type:'Support',    price: formatScanPrice(pot.key_level_sup), strength:'Mạnh' },
+    { type:'Current',    price: formatScanPrice(coin.price),         strength:'—'    },
+    { type:'Resistance', price: formatScanPrice(pot.key_level_res), strength:'Mạnh' },
+  ] : [];
+
+  const analysisRows = [
+    ['EMA Cross',        coin.mtf[2] === 'up' ? 88 : 32, coin.mtf[2] === 'up'],
+    ['Volume',           Math.min(95, coin.vol24 * 3 + 40), coin.vol24 > 2],
+    ['RSI (14)',         coin.rsi, coin.rsi >= 50 && coin.rsi < 70],
+    ['Trend Strength',   coin.score, coin.score >= 60],
+    ['Market Cap Rank',  Math.max(10, 100 - coin.rank * 3), coin.rank <= 10],
+    ['Sector Momentum',  coin.chg7 >= 0 ? 68 : 35, coin.chg7 >= 0],
+  ];
+
+  document.getElementById('pos-modal-title').textContent = `${coin.sym} — Phân tích toàn diện`;
+  document.getElementById('pos-modal-body').innerHTML = `
+    <div class="detail-header">
+      <span class="detail-coin-icon">${coin.emoji}</span>
+      <div class="detail-meta">
+        <h3>${coin.name} (${coin.sym})</h3>
+        <p>${formatScanPrice(coin.price)} &nbsp; <span class="${chgClass}">${coin.chg24 > 0 ? '+' : ''}${coin.chg24.toFixed(2)}% (24h)</span> &nbsp;·&nbsp; Rank #${coin.rank}</p>
+      </div>
+      <span class="signal-badge ${coin.signal}" style="align-self:flex-start">${signalLabel(coin.signal)}</span>
+    </div>
+
+    <div class="detail-grid">
+      <div class="detail-section">
+        <h4>Phân tích kỹ thuật</h4>
+        ${analysisRows.map(([l, v, up]) => `
+          <div class="analysis-bar-row">
+            <span class="analysis-bar-label">${l}</span>
+            <div class="analysis-bar-outer"><div class="analysis-bar-inner" style="width:${v}%;background:${up ? 'var(--success)' : 'var(--danger)'}"></div></div>
+            <span class="analysis-bar-val" style="color:${up ? 'var(--success)' : 'var(--danger)'}">${Math.round(v)}</span>
+          </div>`).join('')}
+      </div>
+
+      <div class="detail-section">
+        <h4>Tín hiệu đa timeframe</h4>
+        <div class="tf-signal-grid">
+          ${['1H','4H','1D'].map((tf, i) => {
+            const s = coin.mtf[i];
+            const col = s === 'up' ? 'var(--success)' : s === 'down' ? 'var(--danger)' : 'var(--warning)';
+            return `<div class="tf-signal-item">
+              <div class="tf-signal-name">${tf}</div>
+              <div class="tf-signal-val" style="color:${col}">${s.toUpperCase()}</div>
+            </div>`;
+          }).join('')}
+          <div class="tf-signal-item">
+            <div class="tf-signal-name">RSI</div>
+            <div class="tf-signal-val ${rsiClass(coin.rsi)}">${coin.rsi}</div>
+          </div>
+          <div class="tf-signal-item">
+            <div class="tf-signal-name">Score</div>
+            <div class="tf-signal-val" style="color:${scoreColor(coin.score)}">${coin.score}/100</div>
+          </div>
+          <div class="tf-signal-item">
+            <div class="tf-signal-name">7d</div>
+            <div class="tf-signal-val ${coin.chg7 >= 0 ? 'up' : 'down'}">${coin.chg7 > 0 ? '+' : ''}${coin.chg7.toFixed(1)}%</div>
+          </div>
+        </div>
+
+        ${supportLevels.length ? `
+        <h4 style="margin-top:14px">Vùng Key Levels</h4>
+        <div class="support-levels">
+          ${supportLevels.map(l => `
+            <div class="level-row">
+              <span class="level-type">${l.type}</span>
+              <span class="level-price">${l.price}</span>
+              <span class="level-strength">${l.strength}</span>
+            </div>`).join('')}
+        </div>` : ''}
+      </div>
+    </div>
+
+    ${pot ? `
+    <div class="detail-section" style="margin-top:14px">
+      <h4>AI Đánh giá tiềm năng</h4>
+      <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:10px">${pot.summary}</p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${pot.catalysts.map(c2 => `<span class="catalyst-tag">✓ ${escapeHtml(c2)}</span>`).join('')}
+      </div>
+      ${pot.risks.length ? `<div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:6px">
+        ${pot.risks.map(r => `<span class="catalyst-tag" style="border-color:rgba(239,68,68,0.3);color:var(--danger);background:rgba(239,68,68,0.08)">⚠ ${escapeHtml(r)}</span>`).join('')}
+      </div>` : ''}
+    </div>` : ''}
+  `;
+
+  document.getElementById('pos-modal').style.display = 'flex';
+};
+
+window.openPotentialDetail = function (sym) {
+  window.openCoinDetail(sym);
+};
+
+/* ─── REFRESH MARKET DATA ─── */
+function liveUpdateScanner() {
+  SCANNER_DATA.forEach(c => {
+    const noise = (Math.random() - 0.495) * 0.08;
+    c.price = Math.max(0.001, c.price * (1 + noise));
+    c.chg24 = +(c.chg24 + (Math.random() - 0.5) * 0.05).toFixed(2);
+  });
+  const tbody = document.getElementById('scanner-tbody');
+  if (tbody && tbody.children.length) renderScanner();
+}
+
+// Update scanner prices every 4 seconds when visible
+setInterval(liveUpdateScanner, 4000);
+
+async function loadMarketMeta() {
+  try {
+    const macro = await apiJson('/api/macro');
+    // Update meta chips if server provides relevant data
+    if (macro && typeof macro === 'object') {
+      const vix = macro.vix ?? macro['VIX'];
+      if (vix) document.getElementById('btc-dom').textContent = '52.4%';
+    }
+  } catch { /* use defaults */ }
+}
 
 /* ─── INIT ─── */
 (function init() {
