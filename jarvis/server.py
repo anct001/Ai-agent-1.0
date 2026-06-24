@@ -594,4 +594,9 @@ def glass_dashboard():
     return FileResponse(WEB_DIR / "glass.html")
 
 
+@app.get("/trading")
+def trading_dashboard():
+    return FileResponse(WEB_DIR / "trading.html")
+
+
 app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")

@@ -1,0 +1,696 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>JARVIS — AI Trading Terminal</title>
+  <link rel="stylesheet" href="/static/trading.css" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+</head>
+<body>
+  <canvas id="particles-canvas"></canvas>
+
+  <div class="app">
+
+    <!-- ─── HEADER ─── -->
+    <header class="header glass-header">
+      <div class="header-left">
+        <div class="logo">
+          <div class="logo-orb"></div>
+          <div class="logo-text">
+            <span class="logo-name">JARVIS</span>
+            <span class="logo-sub">AI Trading Terminal</span>
+          </div>
+        </div>
+        <div class="workspace-tabs">
+          <button class="ws-tab active" data-ws="scalping">Scalping</button>
+          <button class="ws-tab" data-ws="swing">Swing Trading</button>
+          <button class="ws-tab" data-ws="portfolio">Portfolio</button>
+          <button class="ws-tab ws-add" title="Add workspace">＋</button>
+        </div>
+      </div>
+
+      <div class="header-center">
+        <div class="market-pills">
+          <span class="market-pill" id="btc-pill">
+            <span class="mp-name">BTC</span>
+            <span class="mp-price" id="btc-price">—</span>
+            <span class="mp-chg" id="btc-chg"></span>
+          </span>
+          <span class="market-pill" id="eth-pill">
+            <span class="mp-name">ETH</span>
+            <span class="mp-price" id="eth-price">—</span>
+            <span class="mp-chg" id="eth-chg"></span>
+          </span>
+          <span class="market-pill" id="sol-pill">
+            <span class="mp-name">SOL</span>
+            <span class="mp-price" id="sol-price">—</span>
+            <span class="mp-chg" id="sol-chg"></span>
+          </span>
+        </div>
+        <div class="search-wrap">
+          <span class="search-icon">⌕</span>
+          <input type="text" id="search-input" placeholder="Tìm coin, chiến lược, lệnh..." autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div class="exchange-badges">
+          <span class="exch-badge connected">Binance ✓</span>
+          <span class="exch-badge connected">Bybit ✓</span>
+          <span class="exch-badge connected">OKX ✓</span>
+        </div>
+        <div class="header-clock">
+          <span id="clock-time" class="clock-time">00:00:00</span>
+          <span class="clock-tz">UTC</span>
+        </div>
+        <div class="header-actions">
+          <button class="icon-btn" id="notif-btn" title="Thông báo">
+            🔔<span class="badge" id="notif-badge">3</span>
+          </button>
+          <button class="icon-btn" id="theme-btn" title="Đổi giao diện">🌙</button>
+          <button class="icon-btn" id="profile-btn" title="Hồ sơ">👤</button>
+        </div>
+      </div>
+    </header>
+
+    <!-- ─── APP BODY ─── -->
+    <div class="app-body">
+
+      <!-- ─── LEFT SIDEBAR ─── -->
+      <nav class="sidebar" id="sidebar">
+        <ul class="sidebar-menu">
+          <li class="menu-item active" data-section="dashboard">
+            <span class="menu-icon">🏠</span>
+            <span class="menu-label">Dashboard</span>
+            <span class="menu-glow"></span>
+          </li>
+          <li class="menu-item" data-section="markets">
+            <span class="menu-icon">📈</span>
+            <span class="menu-label">Markets</span>
+            <span class="menu-glow"></span>
+          </li>
+          <li class="menu-item" data-section="portfolio">
+            <span class="menu-icon">💰</span>
+            <span class="menu-label">Portfolio</span>
+            <span class="menu-glow"></span>
+          </li>
+          <li class="menu-item" data-section="trades">
+            <span class="menu-icon">📊</span>
+            <span class="menu-label">Trades</span>
+            <span class="menu-glow"></span>
+          </li>
+          <li class="menu-item" data-section="agents">
+            <span class="menu-icon">🤖</span>
+            <span class="menu-label">AI Agents</span>
+            <span class="badge-dot">12</span>
+            <span class="menu-glow"></span>
+          </li>
+          <li class="menu-item" data-section="reasoning">
+            <span class="menu-icon">🧠</span>
+            <span class="menu-label">AI Reasoning</span>
+            <span class="menu-glow"></span>
+          </li>
+          <li class="menu-item" data-section="backtests">
+            <span class="menu-icon">📚</span>
+            <span class="menu-label">Backtests</span>
+            <span class="menu-glow"></span>
+          </li>
+          <li class="menu-item" data-section="risk">
+            <span class="menu-icon">⚠️</span>
+            <span class="menu-label">Risk Center</span>
+            <span class="menu-glow"></span>
+          </li>
+          <li class="menu-item" data-section="logs">
+            <span class="menu-icon">📝</span>
+            <span class="menu-label">Logs</span>
+            <span class="menu-glow"></span>
+          </li>
+          <li class="menu-item" data-section="settings">
+            <span class="menu-icon">⚙️</span>
+            <span class="menu-label">Settings</span>
+            <span class="menu-glow"></span>
+          </li>
+        </ul>
+      </nav>
+
+      <!-- ─── MAIN AREA ─── -->
+      <main class="main-area" id="main-area">
+
+        <!-- DASHBOARD -->
+        <section class="section active" id="section-dashboard">
+          <div class="kpi-row" id="kpi-row">
+            <div class="kpi-card glass" id="kpi-balance">
+              <div class="kpi-icon-wrap"><span class="kpi-icon">💵</span></div>
+              <div class="kpi-content">
+                <div class="kpi-label">Balance</div>
+                <div class="kpi-value" id="val-balance">—</div>
+                <div class="kpi-sub" id="sub-balance">Loading…</div>
+              </div>
+              <canvas class="kpi-spark" id="spark-balance" width="80" height="32"></canvas>
+            </div>
+            <div class="kpi-card glass" id="kpi-pnl">
+              <div class="kpi-icon-wrap"><span class="kpi-icon">📈</span></div>
+              <div class="kpi-content">
+                <div class="kpi-label">Total PnL</div>
+                <div class="kpi-value" id="val-pnl">—</div>
+                <div class="kpi-sub" id="sub-pnl">All time</div>
+              </div>
+              <canvas class="kpi-spark" id="spark-pnl" width="80" height="32"></canvas>
+            </div>
+            <div class="kpi-card glass">
+              <div class="kpi-icon-wrap"><span class="kpi-icon">🎯</span></div>
+              <div class="kpi-content">
+                <div class="kpi-label">Win Rate</div>
+                <div class="kpi-value" id="val-winrate">—</div>
+                <div class="kpi-sub">This month</div>
+              </div>
+              <canvas class="kpi-spark" id="spark-wr" width="80" height="32"></canvas>
+            </div>
+            <div class="kpi-card glass">
+              <div class="kpi-icon-wrap"><span class="kpi-icon">⚡</span></div>
+              <div class="kpi-content">
+                <div class="kpi-label">Open Positions</div>
+                <div class="kpi-value" id="val-openpos">—</div>
+                <div class="kpi-sub" id="sub-openpos">—</div>
+              </div>
+              <canvas class="kpi-spark" id="spark-pos" width="80" height="32"></canvas>
+            </div>
+            <div class="kpi-card glass">
+              <div class="kpi-icon-wrap"><span class="kpi-icon">📉</span></div>
+              <div class="kpi-content">
+                <div class="kpi-label">Max Drawdown</div>
+                <div class="kpi-value down" id="val-dd">—</div>
+                <div class="kpi-sub" id="sub-dd">Sharpe —</div>
+              </div>
+              <canvas class="kpi-spark" id="spark-dd" width="80" height="32"></canvas>
+            </div>
+            <div class="kpi-card glass">
+              <div class="kpi-icon-wrap"><span class="kpi-icon">🔥</span></div>
+              <div class="kpi-content">
+                <div class="kpi-label">Today Trades</div>
+                <div class="kpi-value" id="val-todaytrades">—</div>
+                <div class="kpi-sub" id="sub-todaytrades">Avg PnL —</div>
+              </div>
+              <canvas class="kpi-spark" id="spark-trades" width="80" height="32"></canvas>
+            </div>
+          </div>
+
+          <!-- Chart Area -->
+          <div class="chart-container glass" id="chart-area">
+            <div class="chart-header">
+              <div class="chart-left">
+                <div class="symbol-tabs">
+                  <button class="sym-btn active" data-symbol="BTC">BTC/USDT</button>
+                  <button class="sym-btn" data-symbol="ETH">ETH/USDT</button>
+                  <button class="sym-btn" data-symbol="SOL">SOL/USDT</button>
+                </div>
+                <div class="tf-tabs">
+                  <button class="tf-btn" data-tf="1m">1m</button>
+                  <button class="tf-btn" data-tf="5m">5m</button>
+                  <button class="tf-btn" data-tf="15m">15m</button>
+                  <button class="tf-btn active" data-tf="1h">1H</button>
+                  <button class="tf-btn" data-tf="4h">4H</button>
+                  <button class="tf-btn" data-tf="1d">1D</button>
+                </div>
+              </div>
+              <div class="chart-right">
+                <div class="indicator-pills">
+                  <span class="ind-pill" data-ind="ema">EMA</span>
+                  <span class="ind-pill active" data-ind="rsi">RSI</span>
+                  <span class="ind-pill" data-ind="macd">MACD</span>
+                  <span class="ind-pill" data-ind="bb">BB</span>
+                  <span class="ind-pill" data-ind="fib">FIB</span>
+                </div>
+                <div class="chart-price-display">
+                  <span id="chart-price" class="chart-price">$108,240</span>
+                  <span id="chart-chg" class="chart-chg up">+2.84%</span>
+                </div>
+              </div>
+            </div>
+            <div class="chart-body">
+              <canvas id="main-chart"></canvas>
+              <canvas id="rsi-chart"></canvas>
+            </div>
+          </div>
+
+          <!-- Open Positions Panel -->
+          <div class="positions-panel glass">
+            <div class="panel-header">
+              <h3 class="panel-title">Open Positions</h3>
+              <div class="panel-tabs">
+                <button class="ptab active" data-tab="positions">Positions</button>
+                <button class="ptab" data-tab="orders">Orders</button>
+                <button class="ptab" data-tab="history">History</button>
+              </div>
+              <div class="panel-summary">
+                Unrealized PnL: <strong id="total-upnl" class="up">+$842.50</strong>
+              </div>
+            </div>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Coin</th>
+                    <th>Side</th>
+                    <th>Size</th>
+                    <th>Entry</th>
+                    <th>Mark</th>
+                    <th>PnL</th>
+                    <th>%</th>
+                    <th>SL / TP</th>
+                    <th>AI Conf.</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody id="positions-tbody">
+                  <tr class="placeholder-row">
+                    <td colspan="10">Loading positions…</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- MARKETS -->
+        <section class="section" id="section-markets">
+          <div class="section-hdr">
+            <h2>Market Analysis</h2>
+            <div class="market-meta" id="market-meta">
+              <span class="meta-chip">Tổng vốn: <strong id="total-mcap">$2.81T</strong></span>
+              <span class="meta-chip">BTC Dom: <strong id="btc-dom">52.4%</strong></span>
+              <span class="meta-chip">24h Vol: <strong id="total-vol">$142B</strong></span>
+            </div>
+          </div>
+
+          <!-- Tab nav -->
+          <div class="market-tabs">
+            <button class="mkt-tab active" data-mkt="heatmap">🗺 Heatmap</button>
+            <button class="mkt-tab" data-mkt="scanner">🔍 Market Scanner</button>
+            <button class="mkt-tab" data-mkt="potential">🎯 AI Potential</button>
+            <button class="mkt-tab" data-mkt="health">💊 Market Health</button>
+          </div>
+
+          <!-- Pane: Heatmap (existing) -->
+          <div class="mkt-pane active" id="mkt-heatmap">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px">
+              <select class="glass-select" id="heatmap-metric" style="width:180px">
+                <option value="change">% Change (24h)</option>
+                <option value="volume">Volume</option>
+                <option value="mcap">Market Cap</option>
+              </select>
+            </div>
+            <div class="heatmap-grid" id="heatmap-grid"></div>
+            <div class="glass movers-card" style="margin-top:14px">
+              <h3>Top Movers</h3>
+              <div class="movers-list" id="movers-list"></div>
+            </div>
+          </div>
+
+          <!-- Pane: Market Scanner -->
+          <div class="mkt-pane" id="mkt-scanner">
+            <div class="scanner-toolbar">
+              <div class="scanner-filters">
+                <button class="sf-btn active" data-sf="all">Tất cả</button>
+                <button class="sf-btn" data-sf="strong_buy">Strong Buy</button>
+                <button class="sf-btn" data-sf="buy">Buy</button>
+                <button class="sf-btn" data-sf="hold">Hold</button>
+                <button class="sf-btn" data-sf="sell">Sell</button>
+              </div>
+              <div class="scanner-search-wrap">
+                <input class="glass-input" id="scanner-search" placeholder="Tìm coin..." style="width:180px;padding:6px 12px" />
+              </div>
+              <div class="scanner-sort-info" id="scanner-sort-info">Sắp xếp: Score ↓</div>
+            </div>
+            <div class="table-scroll" style="max-height:520px">
+              <table class="data-table scanner-table" id="scanner-table">
+                <thead>
+                  <tr>
+                    <th class="sortable" data-col="rank">#</th>
+                    <th class="sortable" data-col="name">Coin</th>
+                    <th class="sortable" data-col="price">Giá</th>
+                    <th class="sortable" data-col="chg24">24h %</th>
+                    <th class="sortable" data-col="chg7">7d %</th>
+                    <th class="sortable" data-col="vol24">Vol 24h</th>
+                    <th class="sortable" data-col="mcap">MCap</th>
+                    <th class="sortable" data-col="rsi">RSI</th>
+                    <th>Trend MTF</th>
+                    <th>AI Signal</th>
+                    <th class="sortable" data-col="score">Score ↓</th>
+                    <th>Phân tích</th>
+                  </tr>
+                </thead>
+                <tbody id="scanner-tbody"></tbody>
+              </table>
+            </div>
+            <div class="scanner-footer" id="scanner-footer">Hiển thị 0 coins</div>
+          </div>
+
+          <!-- Pane: AI Potential -->
+          <div class="mkt-pane" id="mkt-potential">
+            <div class="potential-toolbar">
+              <div class="potential-filters">
+                <button class="pf-btn active" data-pf="all">Tất cả</button>
+                <button class="pf-btn" data-pf="strong_buy">Strong Buy</button>
+                <button class="pf-btn" data-pf="buy">Buy</button>
+                <button class="pf-btn" data-pf="hold">Hold</button>
+              </div>
+              <div class="potential-sort">
+                <select class="glass-select" id="potential-sort" style="width:160px">
+                  <option value="overall">Overall Score</option>
+                  <option value="fundamental">Fundamental</option>
+                  <option value="technical">Technical</option>
+                  <option value="sentiment">Sentiment</option>
+                </select>
+              </div>
+            </div>
+            <div class="potential-grid" id="potential-grid"></div>
+          </div>
+
+          <!-- Pane: Market Health -->
+          <div class="mkt-pane" id="mkt-health">
+            <div class="health-layout">
+              <!-- Left column: key gauges -->
+              <div class="health-col-left">
+                <div class="glass health-card fg-card">
+                  <h3>Fear &amp; Greed Index</h3>
+                  <canvas id="fg-gauge" width="200" height="120"></canvas>
+                  <div class="fg-value" id="fg-value">72</div>
+                  <div class="fg-label" id="fg-label">Greed</div>
+                  <div class="fg-history" id="fg-history"></div>
+                </div>
+
+                <div class="glass health-card">
+                  <h3>Bitcoin Dominance</h3>
+                  <div class="dom-row">
+                    <div class="dom-bar-wrap">
+                      <div class="dom-bar-fill" id="btc-dom-bar" style="width:52.4%"></div>
+                    </div>
+                    <span class="dom-val" id="btc-dom-val">52.4%</span>
+                  </div>
+                  <p class="health-note">ETH: 16.6% · BNB: 3.3% · Others: 27.7%</p>
+                  <div class="dom-trend" id="dom-trend">
+                    <canvas id="dom-chart" height="60"></canvas>
+                  </div>
+                </div>
+
+                <div class="glass health-card">
+                  <h3>Altcoin Season Index</h3>
+                  <div class="altseason-meter">
+                    <div class="altseason-bar">
+                      <div class="altseason-fill" id="altseason-fill" style="width:64%"></div>
+                      <div class="altseason-marker" style="left:75%"></div>
+                    </div>
+                    <div class="altseason-labels">
+                      <span>Bitcoin</span><span>Altcoin Season</span>
+                    </div>
+                  </div>
+                  <p class="health-val" id="altseason-val">64 / 100</p>
+                  <p class="health-note">8/10 altcoins vượt BTC trong 90 ngày</p>
+                </div>
+              </div>
+
+              <!-- Right column: tables & charts -->
+              <div class="health-col-right">
+                <div class="glass health-card">
+                  <h3>Funding Rates</h3>
+                  <div class="table-scroll">
+                    <table class="data-table" id="funding-table">
+                      <thead><tr><th>Coin</th><th>Binance</th><th>Bybit</th><th>OKX</th><th>Trạng thái</th></tr></thead>
+                      <tbody id="funding-tbody"></tbody>
+                    </table>
+                  </div>
+                </div>
+
+                <div class="glass health-card">
+                  <h3>On-Chain Signals</h3>
+                  <div class="onchain-grid" id="onchain-grid"></div>
+                </div>
+
+                <div class="glass health-card">
+                  <h3>Macro Regime</h3>
+                  <div id="macro-tiles" class="macro-tiles"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- PORTFOLIO -->
+        <section class="section" id="section-portfolio">
+          <div class="section-hdr"><h2>Portfolio</h2></div>
+          <div class="portfolio-grid" id="portfolio-grid">
+            <div class="glass port-card">
+              <h3>Allocation</h3>
+              <canvas id="port-alloc-chart" height="220"></canvas>
+            </div>
+            <div class="glass port-card">
+              <h3>Equity Curve</h3>
+              <canvas id="port-equity-chart" height="220"></canvas>
+            </div>
+            <div class="glass port-card span2">
+              <h3>Holdings</h3>
+              <div class="table-scroll">
+                <table class="data-table" id="holdings-table">
+                  <thead><tr><th>Asset</th><th>Qty</th><th>Value</th><th>Weight</th><th>PnL</th></tr></thead>
+                  <tbody id="holdings-tbody"></tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- TRADES -->
+        <section class="section" id="section-trades">
+          <div class="section-hdr"><h2>Trade Trace</h2></div>
+          <div class="trace-layout">
+            <div class="glass trace-flow" id="trace-flow">
+              <h3>Signal Flow</h3>
+              <div class="flow-graph" id="flow-graph"></div>
+            </div>
+            <div class="glass trade-log-card">
+              <h3>Trade Log</h3>
+              <div id="trades-list" class="trades-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- AI AGENTS -->
+        <section class="section" id="section-agents">
+          <div class="section-hdr">
+            <h2>AI Agent Monitoring</h2>
+            <span class="online-badge">● 12 Online</span>
+          </div>
+          <div class="agents-grid" id="agents-grid"></div>
+        </section>
+
+        <!-- AI REASONING -->
+        <section class="section" id="section-reasoning">
+          <div class="section-hdr">
+            <h2>AI Reasoning Chain</h2>
+            <select class="glass-select" id="reasoning-select">
+              <option>BTC/USDT LONG — 14:32 UTC</option>
+              <option>ETH/USDT SHORT — 13:15 UTC</option>
+              <option>SOL/USDT LONG — 11:44 UTC</option>
+            </select>
+          </div>
+          <div class="reasoning-layout">
+            <div class="glass reasoning-timeline" id="reasoning-timeline"></div>
+            <div class="glass reasoning-detail" id="reasoning-detail">
+              <h3>Node Detail</h3>
+              <p class="muted" id="reasoning-detail-placeholder">Select a node to inspect</p>
+              <div id="reasoning-detail-body" style="display:none"></div>
+            </div>
+          </div>
+        </section>
+
+        <!-- BACKTESTS -->
+        <section class="section" id="section-backtests">
+          <div class="section-hdr"><h2>Strategy Backtests</h2></div>
+          <div class="backtest-layout">
+            <div class="glass backtest-form-card">
+              <h3>Run Backtest</h3>
+              <form id="backtest-form">
+                <label class="form-label">Target Weights (e.g. BTC 60% ETH 40%)</label>
+                <input class="glass-input" id="bt-weights" type="text" placeholder="BTC 60 ETH 40" />
+                <label class="form-label">Period</label>
+                <select class="glass-select" id="bt-period">
+                  <option value="1y">1 Year</option>
+                  <option value="2y">2 Years</option>
+                  <option value="3y">3 Years</option>
+                </select>
+                <label class="form-label">Rebalance</label>
+                <select class="glass-select" id="bt-rebalance">
+                  <option value="monthly">Monthly</option>
+                  <option value="weekly">Weekly</option>
+                  <option value="daily">Daily</option>
+                </select>
+                <button class="btn-primary" type="submit">▶ Run Backtest</button>
+              </form>
+            </div>
+            <div class="glass backtest-results-card" id="backtest-results">
+              <p class="muted">Run a backtest to see results.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- RISK -->
+        <section class="section" id="section-risk">
+          <div class="section-hdr">
+            <h2>Risk Center</h2>
+            <span class="risk-badge low" id="risk-level-badge">Low Risk</span>
+          </div>
+          <div class="risk-grid" id="risk-grid"></div>
+        </section>
+
+        <!-- LOGS -->
+        <section class="section" id="section-logs">
+          <div class="section-hdr">
+            <h2>System Logs</h2>
+            <button class="btn-sm" id="clear-logs-btn">Clear</button>
+          </div>
+          <div class="glass logs-wrap" id="logs-wrap">
+            <div id="logs-list" class="logs-list"></div>
+          </div>
+        </section>
+
+        <!-- SETTINGS -->
+        <section class="section" id="section-settings">
+          <div class="section-hdr"><h2>Settings</h2></div>
+          <div class="settings-grid">
+            <div class="glass settings-card">
+              <h3>Giao diện</h3>
+              <div class="theme-row">
+                <button class="theme-btn active" data-theme="dark">🌙 Dark</button>
+                <button class="theme-btn" data-theme="light">☀️ Light</button>
+              </div>
+            </div>
+            <div class="glass settings-card">
+              <h3>Dashboards</h3>
+              <div class="nav-links">
+                <a href="/" class="nav-link">🏠 Classic</a>
+                <a href="/quant" class="nav-link">📊 Quant Research</a>
+                <a href="/glass" class="nav-link">🌟 Glass</a>
+                <a href="/trading" class="nav-link active">🚀 Trading Terminal</a>
+              </div>
+            </div>
+            <div class="glass settings-card">
+              <h3>API Token</h3>
+              <button class="btn-primary" id="change-token-btn">Change Token</button>
+            </div>
+          </div>
+        </section>
+
+      </main>
+
+      <!-- ─── RIGHT AI PANEL ─── -->
+      <aside class="ai-panel glass" id="ai-panel">
+        <div class="ai-panel-header">
+          <div class="ai-avatar-wrap">
+            <div class="ai-orb"></div>
+          </div>
+          <div class="ai-info">
+            <span class="ai-name">JARVIS AI</span>
+            <span class="ai-status" id="ai-status-text">● Online</span>
+          </div>
+          <button class="icon-btn ai-collapse-btn" id="ai-collapse-btn" title="Thu gọn">◀</button>
+        </div>
+
+        <div class="ai-quick-btns">
+          <button class="quick-btn" data-q="Tại sao AI mở lệnh BTC gần đây?">Phân tích BTC</button>
+          <button class="quick-btn" data-q="Mức độ rủi ro của portfolio hiện tại?">Rủi ro</button>
+          <button class="quick-btn" data-q="Chạy backtest chiến lược EMA cross cho BTC">Backtest</button>
+          <button class="quick-btn" data-q="Xu hướng thị trường crypto hôm nay?">Xu hướng</button>
+        </div>
+
+        <div class="ai-messages" id="ai-messages"></div>
+
+        <div class="ai-thinking" id="ai-thinking">
+          <span class="dot-pulse"></span>
+          <span>JARVIS đang phân tích…</span>
+        </div>
+
+        <form class="ai-form" id="ai-form">
+          <textarea class="ai-textarea" id="ai-input" placeholder="Hỏi về thị trường, chiến lược, lệnh…" rows="1"></textarea>
+          <button class="ai-send" type="submit" id="ai-send">➤</button>
+        </form>
+      </aside>
+    </div>
+
+    <!-- ─── STATUS BAR ─── -->
+    <footer class="status-bar">
+      <div class="sb-group">
+        <span class="sb-dot green"></span>Server: Online
+      </div>
+      <div class="sb-group">
+        <span class="sb-dot green"></span>AI: Ready
+      </div>
+      <div class="sb-group">
+        Latency: <strong id="sb-latency">35ms</strong>
+      </div>
+      <div class="sb-group">
+        Agents: <strong id="sb-agents">12 Online</strong>
+      </div>
+      <div class="sb-group">
+        <span class="sb-dot green"></span>Binance ✓
+      </div>
+      <div class="sb-group">
+        <span class="sb-dot green"></span>Bybit ✓
+      </div>
+      <div class="sb-group">
+        <span class="sb-dot green"></span>OKX ✓
+      </div>
+      <div class="sb-spacer"></div>
+      <div class="sb-group">GPU: RTX 5090</div>
+      <div class="sb-group">VRAM: 28GB/24GB</div>
+      <div class="sb-group" id="sb-time">—</div>
+    </footer>
+  </div>
+
+  <!-- Position Inspector Modal -->
+  <div class="modal-overlay" id="pos-modal" style="display:none">
+    <div class="modal-box glass" id="pos-inspector">
+      <div class="modal-hdr">
+        <h3 id="pos-modal-title">Position Inspector</h3>
+        <button class="modal-close" id="pos-modal-close">✕</button>
+      </div>
+      <div id="pos-modal-body" class="modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Notification Panel -->
+  <div class="notif-panel glass" id="notif-panel" style="display:none">
+    <div class="notif-hdr">
+      <h3>Thông báo</h3>
+      <button id="notif-close" class="modal-close">✕</button>
+    </div>
+    <div class="notif-list" id="notif-list">
+      <div class="notif-item">
+        <span class="notif-dot warning"></span>
+        <div>
+          <p>BTC đạt kháng cự $110,000</p>
+          <small>2 phút trước</small>
+        </div>
+      </div>
+      <div class="notif-item">
+        <span class="notif-dot success"></span>
+        <div>
+          <p>ETH LONG đóng: +1.7% profit</p>
+          <small>15 phút trước</small>
+        </div>
+      </div>
+      <div class="notif-item">
+        <span class="notif-dot danger"></span>
+        <div>
+          <p>Stop loss kích hoạt: SOL tại $145</p>
+          <small>1 giờ trước</small>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/common.js"></script>
+  <script src="/static/trading.js"></script>
+</body>
+</html>
