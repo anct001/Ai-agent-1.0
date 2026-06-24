@@ -6,7 +6,7 @@ read the macro regime without any paid data feed:
   rates      ^TNX (US 10Y yield), ^IRX (13-week T-bill)
   risk       ^VIX (equity vol), HYG (high-yield credit)
   growth     ^GSPC (S&P 500), ^IXIC (Nasdaq), IWM (small caps)
-  inflation  CL=F (WTI crude), GC=F (gold), DX=F (dollar index)
+  inflation  CL=F (WTI crude), GC=F (gold), UUP (USD index ETF)
   liquidity  BTC-USD (risk-appetite barometer)
 """
 
@@ -20,7 +20,7 @@ _INDICATORS = {
     "^IRX": "US 13-week T-bill yield (%)",
     "^VIX": "CBOE Volatility Index",
     "HYG": "High-yield corporate bond ETF",
-    "DX=F": "US Dollar Index futures",
+    "UUP": "US Dollar Index ETF (UUP)",
     "CL=F": "WTI Crude Oil futures",
     "GC=F": "Gold futures",
     "BTC-USD": "Bitcoin",
