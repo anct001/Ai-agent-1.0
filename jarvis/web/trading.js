@@ -918,15 +918,16 @@ async function sendAIMessage(text) {
     if (!resp.ok) throw new Error(resp.statusText);
 
     const div = document.createElement('div');
-    div.className = 'ai-msg assistant';
+    div.className = 'ai-msg assistant streaming';
     div.textContent = '';
     if (aiMessages) aiMessages.appendChild(div);
 
     const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let streamStarted = false;
 
-    while (true) {
+    outer: while (true) {
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
@@ -938,18 +939,23 @@ async function sendAIMessage(text) {
         try {
           const evt = JSON.parse(line.slice(6));
           if (evt.type === 'text') {
+            if (!streamStarted) {
+              streamStarted = true;
+              setThinking(false); // ẩn spinner ngay khi nhận token đầu tiên
+            }
             const chunk = (evt.text ?? evt.content ?? '').replace(/\n/g, '<br>');
             div.innerHTML += chunk;
             aiMessages?.scrollTo({ top: aiMessages.scrollHeight, behavior: 'smooth' });
           } else if (evt.type === 'error') {
             div.innerHTML += `<span style="color:var(--danger)">⚠ ${escapeHtml(evt.message ?? 'Lỗi không xác định')}</span>`;
           } else if (evt.type === 'done') {
-            break;
+            break outer;
           }
         } catch { /* ignore malformed SSE lines */ }
       }
     }
-    if (!div.innerHTML.trim()) div.remove(); // remove empty bubble
+    div.classList.remove('streaming');
+    if (!div.innerHTML.trim()) div.remove();
   } catch {
     appendMessage('assistant', demoAIResponse(text), true);
   } finally {

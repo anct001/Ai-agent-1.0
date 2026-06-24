@@ -1634,4 +1634,19 @@ html, body {
 .level-row { display: flex; justify-content: space-between; align-items: center; padding: 5px 8px; background: rgba(0,0,0,0.2); border-radius: 6px; }
 .level-type { font-size: 10px; color: var(--muted); }
 .level-price { font-size: 13px; font-weight: 600; }
+
+/* Streaming typing cursor */
+@keyframes cursor-blink {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0; }
+}
+.ai-msg.assistant.streaming::after {
+  content: '▋';
+  display: inline-block;
+  animation: cursor-blink 0.7s step-start infinite;
+  color: var(--primary);
+  margin-left: 2px;
+  font-size: 0.85em;
+  vertical-align: middle;
+}
 .level-strength { font-size: 10px; color: var(--primary); }
