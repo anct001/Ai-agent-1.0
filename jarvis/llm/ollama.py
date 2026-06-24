@@ -120,3 +120,48 @@ class OllamaClient:
         if "error" in data:
             raise OllamaError(data["error"])
         return data.get("message", {"role": "assistant", "content": ""})
+
+    def chat_stream(
+        self,
+        model: str,
+        messages: list[dict],
+        tools: list[dict] | None,
+        on_token: Callable[[str], None],
+    ) -> dict:
+        """Streaming chat. Calls on_token for each text token as it arrives.
+        Returns the full assistant message dict (with tool_calls if any)."""
+        payload = {"model": model, "messages": messages, "stream": True}
+        if tools:
+            payload["tools"] = tools
+        try:
+            resp = requests.post(
+                f"{self.host}/api/chat", json=payload, stream=True, timeout=self.timeout
+            )
+            resp.raise_for_status()
+        except requests.RequestException as exc:
+            raise OllamaError(f"Chat failed: {exc}")
+
+        full_content = ""
+        tool_calls: list[dict] = []
+
+        for line in resp.iter_lines():
+            if not line:
+                continue
+            try:
+                event = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if "error" in event:
+                raise OllamaError(event["error"])
+            msg = event.get("message", {})
+            chunk = msg.get("content", "") or ""
+            if chunk:
+                full_content += chunk
+                on_token(chunk)
+            if msg.get("tool_calls"):
+                tool_calls = msg["tool_calls"]
+
+        result: dict = {"role": "assistant", "content": full_content}
+        if tool_calls:
+            result["tool_calls"] = tool_calls
+        return result

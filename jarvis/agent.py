@@ -221,15 +221,15 @@ class OllamaEngine(_BaseEngine):
         final_text = ""
 
         for _ in range(MAX_ITERATIONS):
-            message = self.client.chat(
-                self.model, request_messages + self.messages, self.tools
+            message = self.client.chat_stream(
+                self.model, request_messages + self.messages, self.tools,
+                on_token=on_text,
             )
             self.messages.append(message)
             tool_calls = message.get("tool_calls") or []
 
             if not tool_calls:
                 final_text = message.get("content", "") or ""
-                on_text(final_text)
                 break
 
             # Surface any text the model emitted alongside its tool calls.
