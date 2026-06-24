@@ -723,11 +723,14 @@ function renderTraceFlow() {
   }
 }
 
-function highlightFlowNode(el) {
-  document.querySelectorAll('.flow-node').forEach(n => n.style.borderColor = '');
+window.highlightFlowNode = function (el) {
+  document.querySelectorAll('.flow-node').forEach(n => {
+    n.style.borderColor = '';
+    n.style.boxShadow = '';
+  });
   el.style.borderColor = 'var(--primary)';
-  el.style.boxShadow = '0 0 16px var(--primary-g)';
-}
+  el.style.boxShadow = '0 0 16px rgba(59,130,246,0.35)';
+};
 
 /* ─── RISK CENTER ─── */
 const RISK_METRICS = [
@@ -880,10 +883,15 @@ document.getElementById('clear-logs-btn')?.addEventListener('click', () => {
 const aiMessages = document.getElementById('ai-messages');
 const aiThinking = document.getElementById('ai-thinking');
 
-function appendMessage(role, text) {
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function appendMessage(role, text, isHtml = false) {
   const div = document.createElement('div');
   div.className = `ai-msg ${role}`;
-  div.innerHTML = text.replace(/\n/g, '<br>');
+  // User messages are plain text (escaped); assistant messages may contain safe HTML from our templates
+  div.innerHTML = isHtml ? text : escapeHtml(text).replace(/\n/g, '<br>');
   if (aiMessages) aiMessages.appendChild(div);
   aiMessages?.scrollTo({ top: aiMessages.scrollHeight, behavior: 'smooth' });
 }
@@ -930,16 +938,23 @@ async function sendAIMessage(text) {
         try {
           const evt = JSON.parse(line.slice(6));
           if (evt.type === 'text') {
-            div.innerHTML += evt.content.replace(/\n/g, '<br>');
+            const chunk = (evt.text ?? evt.content ?? '').replace(/\n/g, '<br>');
+            div.innerHTML += chunk;
             aiMessages?.scrollTo({ top: aiMessages.scrollHeight, behavior: 'smooth' });
+          } else if (evt.type === 'error') {
+            div.innerHTML += `<span style="color:var(--danger)">⚠ ${escapeHtml(evt.message ?? 'Lỗi không xác định')}</span>`;
+          } else if (evt.type === 'done') {
+            break;
           }
-        } catch { /* ignore malformed */ }
+        } catch { /* ignore malformed SSE lines */ }
       }
     }
+    if (!div.innerHTML.trim()) div.remove(); // remove empty bubble
   } catch {
-    appendMessage('assistant', demoAIResponse(text));
+    appendMessage('assistant', demoAIResponse(text), true);
   } finally {
     setThinking(false);
+    aiMessages?.scrollTo({ top: aiMessages.scrollHeight, behavior: 'smooth' });
   }
 }
 
@@ -1140,25 +1155,89 @@ document.querySelectorAll('.ptab').forEach(btn => {
 });
 
 /* ─── BACKTEST FORM ─── */
+function parseWeightInput(raw) {
+  // Accept: "BTC 60 ETH 40" or "BTC=0.6,ETH=0.4" or "BTC=60,ETH=40"
+  const weights = {};
+  const tokens = raw.trim().split(/[\s,]+/);
+  let i = 0;
+  while (i < tokens.length) {
+    if (tokens[i].includes('=')) {
+      const [sym, val] = tokens[i].split('=');
+      const n = parseFloat(val);
+      if (!sym || isNaN(n)) throw new Error(`Không thể phân tích "${tokens[i]}" — dùng định dạng: BTC 60 ETH 40`);
+      weights[sym.toUpperCase()] = n > 1 ? n / 100 : n;
+      i++;
+    } else {
+      const sym = tokens[i];
+      const val = parseFloat(tokens[i + 1]);
+      if (!sym || isNaN(val)) throw new Error(`Không thể phân tích "${sym} ${tokens[i+1]}" — dùng: BTC 60 ETH 40`);
+      weights[sym.toUpperCase()] = val > 1 ? val / 100 : val;
+      i += 2;
+    }
+  }
+  if (!Object.keys(weights).length) throw new Error('Vui lòng nhập tỷ trọng (ví dụ: BTC 60 ETH 40)');
+  return weights;
+}
+
+function renderBacktestResults(data, label) {
+  const pct = (v) => (v != null ? (v >= 0 ? '+' : '') + (v * 100).toFixed(2) + '%' : '—');
+  const metrics = [
+    ['CAGR',        pct(data.cagr),        data.cagr >= 0 ? 'up' : 'down'],
+    ['Sharpe',      (data.sharpe ?? '—').toFixed?.(2) ?? data.sharpe, ''],
+    ['Max Drawdown',pct(data.max_drawdown), 'down'],
+    ['Volatility',  pct(data.volatility),  ''],
+    ['Total Return',pct(data.total_return), data.total_return >= 0 ? 'up' : 'down'],
+    ['vs Benchmark',pct(data.vs_benchmark), data.vs_benchmark >= 0 ? 'up' : 'down'],
+  ];
+  return `
+    <h3 style="margin-bottom:14px;font-size:15px">Kết quả — ${label}</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+      ${metrics.map(([l, v, c]) => `
+        <div class="glass" style="padding:10px 14px;border-radius:8px">
+          <div style="font-size:11px;color:var(--text-dim);margin-bottom:4px">${l}</div>
+          <div style="font-size:19px;font-weight:700" class="${c}">${v}</div>
+        </div>`).join('')}
+    </div>`;
+}
+
 document.getElementById('backtest-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const resultsEl = document.getElementById('backtest-results');
   if (!resultsEl) return;
-  resultsEl.innerHTML = '<p style="color:var(--muted)">Running backtest…</p>';
 
-  const weights = document.getElementById('bt-weights')?.value || 'BTC 60 ETH 40';
-  await new Promise(r => setTimeout(r, 800));
+  const rawWeights = document.getElementById('bt-weights')?.value?.trim() || '';
+  const period     = document.getElementById('bt-period')?.value || '1y';
+  const rebalance  = document.getElementById('bt-rebalance')?.value || 'monthly';
 
-  resultsEl.innerHTML = `
-    <h3 style="margin-bottom:14px">Results — ${weights}</h3>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
-      ${[['CAGR', '+28.4%', 'up'], ['Sharpe', '1.84', ''], ['Max DD', '-18.2%', 'down'], ['Volatility', '22.3%', ''], ['Win Rate', '64%', 'up'], ['Total Trades', '142', '']].map(([l, v, c]) => `
-        <div class="glass" style="padding:10px 14px;border-radius:8px">
-          <div style="font-size:11px;color:var(--text-dim)">${l}</div>
-          <div style="font-size:18px;font-weight:700" class="${c}">${v}</div>
-        </div>`).join('')}
-    </div>
-  `;
+  let weights;
+  try {
+    weights = parseWeightInput(rawWeights);
+  } catch (err) {
+    resultsEl.innerHTML = `<p style="color:var(--danger)">${escapeHtml(String(err.message ?? err))}</p>`;
+    return;
+  }
+
+  resultsEl.innerHTML = '<p style="color:var(--muted)">⏳ Đang chạy backtest…</p>';
+
+  try {
+    const resp = await api('/api/backtest', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ weights, period, rebalance, benchmark: 'SPY' }),
+    });
+    if (!resp.ok) {
+      const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+      throw new Error(err.detail || resp.statusText);
+    }
+    const data = await resp.json();
+    resultsEl.innerHTML = renderBacktestResults(data, escapeHtml(rawWeights));
+  } catch (err) {
+    // Fallback to demo result when API unavailable
+    resultsEl.innerHTML = renderBacktestResults(
+      { cagr: 0.284, sharpe: 1.84, max_drawdown: -0.182, volatility: 0.223, total_return: 0.847, vs_benchmark: 0.156 },
+      rawWeights + ' <span style="color:var(--muted);font-size:12px">(demo)</span>'
+    );
+  }
 });
 
 /* ─── TOKEN CHANGE ─── */
@@ -1175,7 +1254,7 @@ Tôi có thể giúp bạn:<br>
 • 🤖 Giải thích quyết định của AI<br>
 • 📚 Chạy backtest chiến lược<br>
 • ⚠️ Theo dõi rủi ro portfolio<br><br>
-Hãy đặt câu hỏi hoặc chọn một tùy chọn nhanh bên trên!`);
+Hãy đặt câu hỏi hoặc chọn một tùy chọn nhanh bên trên!`, true);
 }
 
 /* ─── STATUS BAR LATENCY SIMULATION ─── */
